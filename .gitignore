@@ -1,0 +1,7 @@
+# Ignore hidden stuffs
+/**/.DS_Store
+/.*/**
+
+# Ignore build directories
+/build
+/cmake-build-*
