@@ -96,7 +96,7 @@ struct FileView: View {
                 }
             }
         }
-        .onChange(of: fileURL) { oldValue, newValue in
+        .onChange(of: fileURL) { _, newValue in
             viewModel.pageCount = viewModel.computePageCount(for: newValue)
             if let newValue {
                 Task {

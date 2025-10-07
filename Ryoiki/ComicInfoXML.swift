@@ -36,7 +36,11 @@ class ComicInfoXML : XMLParser {
 extension ComicInfoXML: XMLParserDelegate {
 
     // Called when opening tag (`<elementName>`) is found
-    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
+    func parser(_ parser: XMLParser,
+                didStartElement elementName: String,
+                namespaceURI: String?,
+                qualifiedName qName: String?,
+                attributes attributeDict: [String: String] = .init()) {
 
         currentContent = ""
         currentElement = elementName
@@ -69,7 +73,8 @@ extension ComicInfoXML: XMLParserDelegate {
     }
 
     // Called when a character sequence is found
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
+    func parser(_ parser: XMLParser,
+                foundCharacters string: String) {
         guard parsingComicInfo else { return }
 
         if !hasChildren {
@@ -78,7 +83,10 @@ extension ComicInfoXML: XMLParserDelegate {
     }
 
     // Called when closing tag (`</elementName>`) is found
-    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+    func parser(_ parser: XMLParser,
+                didEndElement elementName: String,
+                namespaceURI: String?,
+                qualifiedName qName: String?) {
         // Handle container/structural elements first
         switch elementName {
         case "ComicInfo":
@@ -155,7 +163,8 @@ extension ComicInfoXML: XMLParserDelegate {
     }
 
     // Called when a CDATA block is found
-    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+    func parser(_ parser: XMLParser,
+                foundCDATA CDATABlock: Data) {
         guard String(data: CDATABlock, encoding: .utf8) != nil else {
             print("CDATA contains non-textual data, ignored")
             return

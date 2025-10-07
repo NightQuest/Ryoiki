@@ -8,10 +8,12 @@ import Foundation
 import Combine
 
 /// Tri-state boolean used by some metadata fields.
-internal enum YesNo: String, CaseIterable {
+internal enum YesNo: String, RawRepresentable, CaseIterable, Identifiable {
     case Unknown
     case Yes
     case No
+
+    var id: String { rawValue }
 }
 
 /// Indicates whether content is manga and, if applicable, its reading direction.

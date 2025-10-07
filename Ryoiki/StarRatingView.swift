@@ -9,7 +9,9 @@ struct StarRatingView: View {
     var body: some View {
         HStack(spacing: 4) {
             ForEach(1...max, id: \.self) { index in
-                Button(action: { value = index }) {
+                Button {
+                    value = index
+                } label: {
                     Image(systemName: index <= value ? "star.fill" : "star")
                         .symbolRenderingMode(.monochrome)
                         .foregroundColor(index <= value ? .yellow : .secondary)

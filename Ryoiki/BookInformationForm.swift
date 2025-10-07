@@ -53,9 +53,9 @@ struct BookInformationForm: View {
         case .Format: TextField("", text: $comicInfo.Format)
         case .BlackAndWhite:
             Picker("", selection: $comicInfo.BlackAndWhite) {
-                Text("Unknown").tag(YesNo.Unknown)
-                Text("Yes").tag(YesNo.Yes)
-                Text("No").tag(YesNo.No)
+                ForEach(YesNo.allCases) { option in
+                    Text("\(option.rawValue)").tag(option)
+                }
             }.labelsHidden().pickerStyle(.menu)
         case .Manga:
             Picker("", selection: $comicInfo.Manga) {
@@ -127,7 +127,9 @@ struct BookInformationForm: View {
                                 Spacer()
                                 Menu {
                                     ForEach(ComicInfoModel.EditableProperty.allCases.filter { p in !selectedProperties.contains(p) }) { prop in
-                                        Button(action: { selectedProperties.append(prop) }) {
+                                        Button {
+                                            selectedProperties.append(prop)
+                                        } label: {
                                             Text(prop.displayName)
                                         }
                                     }
