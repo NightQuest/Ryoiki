@@ -57,11 +57,50 @@ struct MainView: View {
 
                                     // Set variables to move to the next View
                                     comicInfoData = comicInfoXML.parsed
+                                    
+                                    // Ensure Pages covers all images in the archive
+                                    let archiveHelper = ComicArchive(fileURL: fileURL)
+                                    let total = archiveHelper.pageCount()
+                                    if total > 0 {
+                                        var finalPages = Array(repeating: ComicPageInfo(), count: total)
+                                        // Default Image indices are zero-based to match PageDetailProvider expectations
+                                        for i in 0..<total { finalPages[i].Image = String(i) }
+
+                                        if let existing = comicInfoData?.Pages, !existing.isEmpty {
+                                            let hasExplicitIndices = existing.contains { Int($0.Image) != nil }
+                                            if hasExplicitIndices {
+                                                for p in existing {
+                                                    if let idx = Int(p.Image), idx >= 0, idx < total {
+                                                        finalPages[idx] = p
+                                                    }
+                                                }
+                                            } else {
+                                                for (i, p) in existing.enumerated() where i < total {
+                                                    finalPages[i] = p
+                                                }
+                                            }
+                                        }
+
+                                        comicInfoData?.Pages = finalPages
+                                        comicInfoData?.PageCount = total
+                                    }
+                                    
                                     hasFileOpened = true
                                     openedFile = fileURL
                                 } else {
                                     // Set variables to move to the next View
                                     comicInfoData = .init()
+                                    
+                                    // Initialize default Pages to match archive image count
+                                    let archiveHelper = ComicArchive(fileURL: fileURL)
+                                    let total = archiveHelper.pageCount()
+                                    if total > 0 {
+                                        var finalPages = Array(repeating: ComicPageInfo(), count: total)
+                                        for i in 0..<total { finalPages[i].Image = String(i) }
+                                        comicInfoData?.Pages = finalPages
+                                        comicInfoData?.PageCount = total
+                                    }
+                                    
                                     hasFileOpened = true
                                     openedFile = fileURL
                                 }
