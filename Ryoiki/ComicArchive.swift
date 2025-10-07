@@ -9,7 +9,7 @@ struct ComicArchive {
 
     /// Supported image extensions for archive entries.
     static let imageExtensions: Set<String> = [
-        "jpg","jpeg","png","gif","bmp","tif","tiff","heic","heif","webp","jp2","j2k"
+        "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "heic", "heif", "webp", "jp2", "j2k"
     ]
 
     /// Centralizes security-scoped access and Archive creation.
@@ -193,4 +193,3 @@ struct ComicArchive {
         }
     }
 }
-

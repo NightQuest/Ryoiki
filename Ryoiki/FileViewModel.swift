@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 @MainActor
-final class FileViewModel: ObservableObject {    
+final class FileViewModel: ObservableObject {
     @Published var md5Hex: String = "" {
         willSet {
             objectWillChange.send()

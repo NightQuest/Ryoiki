@@ -57,7 +57,7 @@ struct MainView: View {
 
                                     // Set variables to move to the next View
                                     comicInfoData = comicInfoXML.parsed
-                                    
+
                                     // Ensure Pages covers all images in the archive
                                     let archiveHelper = ComicArchive(fileURL: fileURL)
                                     let total = archiveHelper.pageCount()
@@ -84,13 +84,13 @@ struct MainView: View {
                                         comicInfoData?.Pages = finalPages
                                         comicInfoData?.PageCount = total
                                     }
-                                    
+
                                     hasFileOpened = true
                                     openedFile = fileURL
                                 } else {
                                     // Set variables to move to the next View
                                     comicInfoData = .init()
-                                    
+
                                     // Initialize default Pages to match archive image count
                                     let archiveHelper = ComicArchive(fileURL: fileURL)
                                     let total = archiveHelper.pageCount()
@@ -100,7 +100,7 @@ struct MainView: View {
                                         comicInfoData?.Pages = finalPages
                                         comicInfoData?.PageCount = total
                                     }
-                                    
+
                                     hasFileOpened = true
                                     openedFile = fileURL
                                 }
@@ -108,8 +108,7 @@ struct MainView: View {
                                 print("An error occurred: \(error.localizedDescription)")
                             }
 
-
-                        case .failure(_):
+                        case .failure:
                             print("FAILZ")
                         }
                     }
@@ -118,4 +117,3 @@ struct MainView: View {
         }
     }
 }
-

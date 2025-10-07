@@ -1,7 +1,3 @@
-// MARK: - Comic Info Types
-/// Core model types and helpers for representing and editing comic metadata.
-//
-
 //  ComicInfoModal.swift
 //  MetaComic
 //
@@ -13,18 +9,17 @@ import Combine
 
 /// Tri-state boolean used by some metadata fields.
 internal enum YesNo: String, CaseIterable {
-    case Unknown = "Unknown"
-    case Yes = "Yes"
-    case No = "No"
+    case Unknown
+    case Yes
+    case No
 }
 
 /// Indicates whether content is manga and, if applicable, its reading direction.
 internal enum Manga: String, RawRepresentable, CaseIterable, Identifiable, Hashable, Equatable {
-
-    case Unknown = "Unknown"
-    case Yes = "Yes"
-    case No = "No"
-    case YesAndRightToLeft = "YesAndRightToLeft"
+    case Unknown
+    case Yes
+    case No
+    case YesAndRightToLeft
 
     var id: String { rawValue }
 }
@@ -84,17 +79,17 @@ internal struct ComicPageInfo: Identifiable, Hashable {
 
 /// Common page roles used by readers and libraries.
 internal enum ComicPageType: String, CaseIterable {
-    case FrontCover = "FrontCover"
-    case InnerCover = "InnerCover"
-    case Roundup = "Roundup"
-    case Story = "Story"
-    case Advertisement = "Advertisement"
-    case Editorial = "Editorial"
-    case Letters = "Letters"
-    case Preview = "Preview"
-    case BackCover = "BackCover"
-    case Other = "Other"
-    case Deleted = "Deleted"
+    case FrontCover
+    case InnerCover
+    case Roundup
+    case Story
+    case Advertisement
+    case Editorial
+    case Letters
+    case Preview
+    case BackCover
+    case Other
+    case Deleted
 }
 
 /// Full metadata model corresponding to ComicInfo.xml fields and related properties.
@@ -135,8 +130,8 @@ class ComicInfoModel: ObservableObject, Identifiable {
     @Published var StoryArc: String = ""
     @Published var SeriesGroup: String = ""
     @Published var AgeRating: AgeRating = .Unknown
-    @Published var Pages: [ComicPageInfo]? = nil
-    @Published var CommunityRating: Rating? = nil
+    @Published var Pages: [ComicPageInfo]?
+    @Published var CommunityRating: Rating?
     @Published var MainCharacterOrTeam: String = ""
     @Published var Review: String = ""
 }
@@ -519,4 +514,3 @@ extension ComicInfoModel {
         Review = other.Review
     }
 }
-

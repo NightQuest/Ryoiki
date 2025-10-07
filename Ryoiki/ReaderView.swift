@@ -19,7 +19,11 @@ public struct ReaderView<ImageContent: View>: View {
         return snapTargets.min(by: { abs($0 - intValue) < abs($1 - intValue) }) ?? intValue
     }
 
-    public init(currentIndex: Binding<Int>, totalPages: Int, maxIndex: Int, @ViewBuilder imageContent: @escaping () -> ImageContent, pageHasMeaningfulValues: @escaping (Int) -> Bool) {
+    public init(currentIndex: Binding<Int>,
+                totalPages: Int,
+                maxIndex: Int,
+                @ViewBuilder imageContent: @escaping () -> ImageContent,
+                pageHasMeaningfulValues: @escaping (Int) -> Bool) {
         self._currentIndex = currentIndex
         self.totalPages = totalPages
         self.maxIndex = maxIndex

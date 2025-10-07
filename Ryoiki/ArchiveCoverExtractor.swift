@@ -18,7 +18,7 @@ enum ArchiveCoverExtractor {
 
             // Regex for a leading number (e.g., 0, 0-foo, 0_bar) and an image extension.
             let pattern = /^(?<num>\d+)(?:(?<sep>[-_])(?<suffix>.+))?\.(?<ext>[a-z0-9]{1,10})$/
-            let commonImageExts: Set<String> = ["jpg","jpeg","png","gif","bmp","tif","tiff","heic","heif","webp","jp2","j2k"]
+            let commonImageExts: Set<String> = ["jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "heic", "heif", "webp", "jp2", "j2k"]
 
             var selectedEntry: ZIPFoundation.Entry?
             var firstImageEntry: ZIPFoundation.Entry?
@@ -109,4 +109,3 @@ enum ArchiveCoverExtractor {
         return nil
     }
 }
-

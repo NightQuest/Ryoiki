@@ -13,7 +13,7 @@ import UIKit
 enum FileUtilities {
     /// Supported image extensions for direct-file detection.
     static let imageExtensions: Set<String> = [
-        "jpg","jpeg","png","gif","bmp","tif","tiff","heic","heif","webp","jp2","j2k"
+        "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "heic", "heif", "webp", "jp2", "j2k"
     ]
 
     /// Returns true if the URL points directly to an image file (by extension).

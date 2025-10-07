@@ -107,7 +107,8 @@ extension ComicInfoXML: XMLParserDelegate {
                 if let doublePageStr = currentPageAttributes["DoublePage"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
                     page.DoublePage = (doublePageStr as NSString).boolValue
                 }
-                if let imageSizeStr = currentPageAttributes["ImageSize"]?.trimmingCharacters(in: .whitespacesAndNewlines), let size = Int64(imageSizeStr) {
+                if let imageSizeStr = currentPageAttributes["ImageSize"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   let size = Int64(imageSizeStr) {
                     page.ImageSize = size
                 }
                 if let key = currentPageAttributes["Key"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
@@ -161,4 +162,3 @@ extension ComicInfoXML: XMLParserDelegate {
         }
     }
 }
-

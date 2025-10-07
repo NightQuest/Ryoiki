@@ -140,7 +140,7 @@ private struct PagesTabView: View {
             set: { currentIndex = $0 - 1 }
         )
     }
-    
+
     private var pageProvider: PageDetailProvider? {
         guard let fileURL else { return nil }
         return PageDetailProvider(fileURL: fileURL, pages: pages)
@@ -234,7 +234,7 @@ private struct PagesTabView: View {
             }
         )
     }
-    
+
     private func pageHasMeaningfulValues(at index: Int) -> Bool {
         guard let p = pages, index >= 0, index < p.count else { return false }
         let page = p[index]
@@ -322,7 +322,7 @@ private struct PagesTabView: View {
             }
         }
     }
-    
+
     private func valueOrDash(_ s: String) -> String { s.isEmpty ? "—" : s }
 
     private func formatBytes(_ bytes: Int64) -> String {
@@ -331,4 +331,3 @@ private struct PagesTabView: View {
         return fmt.string(fromByteCount: bytes)
     }
 }
-

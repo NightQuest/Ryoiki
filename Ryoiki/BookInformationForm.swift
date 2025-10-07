@@ -84,7 +84,11 @@ struct BookInformationForm: View {
         case .Review:
             TextField("", text: $comicInfo.Review, axis: .vertical).lineLimit(1...).submitLabel(.return).submitScope(false)
         case .PublishDate:
-            DatePicker("", selection: Binding(get: { comicInfo.publishDate }, set: { comicInfo.publishDate = $0 }), displayedComponents: .date).labelsHidden()
+            DatePicker("", selection: Binding(
+                get: { comicInfo.publishDate },
+                set: { comicInfo.publishDate = $0
+                }),
+                       displayedComponents: .date).labelsHidden()
         }
     }
 
