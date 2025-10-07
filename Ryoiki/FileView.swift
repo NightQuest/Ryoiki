@@ -6,7 +6,7 @@ import Foundation
 struct FileView: View {
     @Binding var comicInfoData: ComicInfoModel?
     @Binding var fileURL: URL?
-    @State private var viewModel = FileViewModel()
+    @StateObject var viewModel = FileViewModel()
     @StateObject var comicInfoEdited: ComicInfoModel = .init()
     @State private var communityRatingValue: Int = 0
     @State private var md5CopyTrigger: Int = 0
@@ -90,7 +90,32 @@ struct FileView: View {
             }
             communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
             viewModel.pageCount = viewModel.computePageCount(for: fileURL)
-            viewModel.refreshHashes(for: fileURL)
+            if let fileURL {
+                Task {
+                    await viewModel.refreshHashes(for: fileURL)
+                }
+            }
+        }
+        .onChange(of: fileURL) { oldValue, newValue in
+            viewModel.pageCount = viewModel.computePageCount(for: newValue)
+            if let newValue {
+                Task {
+                    await viewModel.refreshHashes(for: newValue)
+                }
+            } else {
+                // Clear hash values when no file is selected
+                viewModel.md5Hex = ""
+                viewModel.sha1Hex = ""
+                viewModel.crc32Hex = ""
+            }
+        }
+        .onChange(of: comicInfoData.map { ObjectIdentifier($0) }) { _, _ in
+            if let model = comicInfoData {
+                comicInfoEdited.overwrite(from: model)
+            } else {
+                comicInfoEdited.overwrite(from: ComicInfoModel())
+            }
+            communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
         }
     }
 }
@@ -235,86 +260,10 @@ private struct PagesTabView: View {
 
             // Image + Details
             HStack(alignment: .top, spacing: 12) {
-                VStack {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.secondary.opacity(0.06))
-                        currentImageView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .padding(8)
-                    }
-                    .frame(maxHeight: .infinity)
-                    // Pager controls
-                    HStack(spacing: 12) {
-                        Spacer()
-                        Button {
-                            currentIndex = max(0, currentIndex - 1)
-                        } label: {
-                            Image(systemName: "chevron.left")
-                        }
-                        .help("Previous Page")
-                        .disabled(currentIndex <= 0)
-
-                        TextField("", value: pageInput, format: .number)
-                            .labelsHidden()
-                            .frame(width: 60)
-                            .multilineTextAlignment(.center)
-                            .accessibilityLabel("Page Number")
-
-                        Button {
-                            currentIndex = min(maxIndex, currentIndex + 1)
-                        } label: {
-                            Image(systemName: "chevron.right")
-                        }
-                        .help("Next Page")
-                        .disabled(currentIndex >= maxIndex)
-                        Spacer()
-                    }
-
-                    // Slider
-                    if totalPages() > 1 {
-                        Slider(
-                            value: Binding(
-                                get: { Double(currentIndex) },
-                                set: { newValue in
-                                    let snapped = Int(newValue.rounded())
-                                    // Disable implicit animation to avoid visual fractional positions
-                                    let transaction = Transaction(animation: nil)
-                                    withTransaction(transaction) {
-                                        currentIndex = min(max(0, snapped), maxIndex)
-                                    }
-                                }
-                            ),
-                            in: 0...Double(maxIndex),
-                            step: 1,
-                            onEditingChanged: { isEditing in
-                                if !isEditing {
-                                    let transaction = Transaction(animation: nil)
-                                    withTransaction(transaction) {
-                                        currentIndex = min(max(0, Int(Double(currentIndex).rounded())), maxIndex)
-                                    }
-                                }
-                            }
-                        )
-                        .sensoryFeedback(.impact, trigger: currentIndex)
-                        .background {
-                            HStack {
-                                ForEach(0..<totalPages(), id: \.self) { i in
-                                    if pageHasMeaningfulValues(at: i) {
-                                        Color.accentColor
-                                            .frame(width: 2)
-                                            .padding(.vertical, 5)
-                                        if i < totalPages() - 1 {
-                                            Spacer()
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                        }
-                        .accessibilityLabel("Page")
-                    }
+                ReaderView(currentIndex: $currentIndex, totalPages: totalPages(), maxIndex: maxIndex) {
+                    currentImageView()
+                } pageHasMeaningfulValues: { i in
+                    pageHasMeaningfulValues(at: i)
                 }
 
                 VStack(spacing: 16) {
@@ -356,13 +305,13 @@ private struct PagesTabView: View {
         .onAppear {
             currentIndex = 0
         }
-        .onChange(of: pages) {
+        .onChange(of: pages) { _, _ in
             currentIndex = 0
         }
-        .onChange(of: fileURL) {
+        .onChange(of: fileURL) { _, _ in
             currentIndex = 0
         }
-        .onChange(of: currentIndex) {
+        .onChange(of: currentIndex) { _, _ in
             // Redundant clamp/snap to keep index tight even if updated elsewhere
             let snapped = min(max(0, Int(Double(currentIndex).rounded())), maxIndex)
             if snapped != currentIndex {
@@ -382,3 +331,4 @@ private struct PagesTabView: View {
         return fmt.string(fromByteCount: bytes)
     }
 }
+

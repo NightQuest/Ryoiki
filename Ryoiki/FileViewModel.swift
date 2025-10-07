@@ -4,10 +4,26 @@ import SwiftUI
 
 @MainActor
 final class FileViewModel: ObservableObject {    
-    @Published var md5Hex: String = ""
-    @Published var sha1Hex: String = ""
-    @Published var crc32Hex: String = ""
-    @Published var pageCount: Int = 0
+    @Published var md5Hex: String = "" {
+        willSet {
+            objectWillChange.send()
+        }
+    }
+    @Published var sha1Hex: String = "" {
+        willSet {
+            objectWillChange.send()
+        }
+    }
+    @Published var crc32Hex: String = "" {
+        willSet {
+            objectWillChange.send()
+        }
+    }
+    @Published var pageCount: Int = 0 {
+        willSet {
+            objectWillChange.send()
+        }
+    }
 
     func computePageCount(for url: URL?) -> Int {
         guard let url else { return 0 }
@@ -18,30 +34,25 @@ final class FileViewModel: ObservableObject {
         FileUtilities.copyToPasteboard(text)
     }
 
-    func refreshHashes(for url: URL?) {
+    func refreshHashes(for url: URL?) async {
         md5Hex = ""
         sha1Hex = ""
         crc32Hex = ""
         guard let url else {
             md5Hex = "—"; sha1Hex = "—"; crc32Hex = "—"; return
         }
-        Task(priority: .utility) { [weak self] in
-            guard let self else { return }
-            let didAccess = url.startAccessingSecurityScopedResource()
-            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
 
-            let result = try? FileUtilities.computeFileDigests(url: url)
-            await MainActor.run {
-                if let result {
-                    self.md5Hex = result.md5
-                    self.sha1Hex = result.sha1
-                    self.crc32Hex = result.crc32
-                } else {
-                    self.md5Hex = "—"
-                    self.sha1Hex = "—"
-                    self.crc32Hex = "—"
-                }
-            }
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+
+        let task = Task {
+            return try? FileUtilities.computeFileDigests(url: url)
         }
+
+        let result = await task.value
+
+        self.md5Hex = result?.md5 ?? "—"
+        self.sha1Hex = result?.sha1 ?? "-"
+        self.crc32Hex = result?.crc32 ?? "-"
     }
 }
