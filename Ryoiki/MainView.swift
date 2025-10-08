@@ -7,113 +7,194 @@
 
 import SwiftUI
 import ZIPFoundation
-internal import UniformTypeIdentifiers
+import UniformTypeIdentifiers
 
 struct MainView: View {
+    @StateObject private var recents = RecentFilesStore()
     @State private var showFileImporter = false
     @State private var hasFileOpened = false
     @State private var openedFile: URL?
     @State var comicInfoData: ComicInfoModel?
 
+    @State private var failedItem: RecentFilesStore.Item?
+    @State private var showRemoveFailedAlert: Bool = false
+
+    private let lastOpenedFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.dateStyle = .medium
+        df.timeStyle = .short
+        return df
+    }()
+
     var body: some View {
         if hasFileOpened {
-            FileView(comicInfoData: $comicInfoData, fileURL: $openedFile)
+            AnyView(
+                FileView(comicInfoData: $comicInfoData, fileURL: $openedFile)
+                    .onOpenFailed { url in
+                        print("FileView failed to open: \(url.path)")
+                        if let item = recents.items.first(where: { $0.url == url }) {
+                            failedItem = item
+                        } else if let item = recents.items.first(where: { $0.fileName == url.lastPathComponent }) {
+                            failedItem = item
+                        } else {
+                            failedItem = nil
+                        }
+                        showRemoveFailedAlert = true
+                        hasFileOpened = false
+                        openedFile = nil
+                    }
+                    .onOpenSucceeded { url in
+                        _ = recents.add(url: url)
+                    }
+            )
         } else {
-            VStack {
-                HStack {
+            VStack(alignment: .leading, spacing: 20) {
+                // Header
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Ryoiki")
+                            .font(.largeTitle.bold())
+                        Text("Open a Comic Book Archive or pick from your recent files")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
                     Button {
                         showFileImporter = true
                     } label: {
-                        Label("Open CBZ", systemImage: "zipper.page")
+                        Label("Open CBZ", systemImage: "folder.badge.plus")
+                            .font(.headline)
                     }
-                    .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.zip]) { result in
-                        switch result {
-                        case .success(let fileURL):
-                            do {
-                                // Request a security scope
-                                let hasAccess = fileURL.startAccessingSecurityScopedResource()
-                                if !hasAccess { return }
+                    .buttonStyle(.borderedProminent)
+                }
 
-                                // Make sure we exit our security scope
-                                defer { fileURL.stopAccessingSecurityScopedResource() }
-
-                                // Attempt to open our archive
-                                let archive = try Archive(url: fileURL, accessMode: .read)
-
-                                // Open ComicInfo.xml if it exists
-                                if let file = archive["ComicInfo.xml"] {
-                                    var comicInfo: Data = .init()
-
-                                    // Extract file to memory
-                                    _ = try archive.extract(file) { data in
-                                        comicInfo.append(data)
-                                    }
-
-                                    // Parse XML
-                                    let comicInfoXML: ComicInfoXML = .init(data: comicInfo)
-                                    if !comicInfoXML.parse() {
-                                        throw ComicInfoXMLError.parsingFailed
-                                    }
-
-                                    // Set variables to move to the next View
-                                    comicInfoData = comicInfoXML.parsed
-
-                                    // Ensure Pages covers all images in the archive
-                                    let archiveHelper = ComicArchive(fileURL: fileURL)
-                                    let total = archiveHelper.pageCount()
-                                    if total > 0 {
-                                        var finalPages = Array(repeating: ComicPageInfo(), count: total)
-                                        // Default Image indices are zero-based to match PageDetailProvider expectations
-                                        for i in 0..<total { finalPages[i].Image = String(i) }
-
-                                        if let existing = comicInfoData?.Pages, !existing.isEmpty {
-                                            let hasExplicitIndices = existing.contains { Int($0.Image) != nil }
-                                            if hasExplicitIndices {
-                                                for p in existing {
-                                                    if let idx = Int(p.Image), idx >= 0, idx < total {
-                                                        finalPages[idx] = p
-                                                    }
-                                                }
-                                            } else {
-                                                for (i, p) in existing.enumerated() where i < total {
-                                                    finalPages[i] = p
-                                                }
-                                            }
-                                        }
-
-                                        comicInfoData?.Pages = finalPages
-                                        comicInfoData?.PageCount = total
-                                    }
-
-                                    hasFileOpened = true
-                                    openedFile = fileURL
-                                } else {
-                                    // Set variables to move to the next View
-                                    comicInfoData = .init()
-
-                                    // Initialize default Pages to match archive image count
-                                    let archiveHelper = ComicArchive(fileURL: fileURL)
-                                    let total = archiveHelper.pageCount()
-                                    if total > 0 {
-                                        var finalPages = Array(repeating: ComicPageInfo(), count: total)
-                                        for i in 0..<total { finalPages[i].Image = String(i) }
-                                        comicInfoData?.Pages = finalPages
-                                        comicInfoData?.PageCount = total
-                                    }
-
-                                    hasFileOpened = true
-                                    openedFile = fileURL
-                                }
-                            } catch {
-                                print("An error occurred: \(error.localizedDescription)")
-                            }
-
-                        case .failure:
-                            print("FAILZ")
-                        }
+                // Recents Header
+                HStack {
+                    Text("Recent Files")
+                        .font(.headline)
+                    Spacer()
+                    if !recents.items.isEmpty {
+                        Button("Clear") { recents.clear() }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
                     }
                 }
+
+                if recents.items.isEmpty {
+                    HStack(spacing: 12) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .imageScale(.large)
+                            .foregroundStyle(.secondary)
+                        Text("No recent files")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                } else {
+                    List(recents.items.prefix(5), id: \.id) { item in
+                        Button {
+                            openRecent(item)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "doc.zipper")
+                                            .foregroundStyle(Color.accentColor)
+                                        Text(item.title ?? item.name)
+                                            .font(.headline)
+                                    }
+                                    Spacer()
+                                    Text(lastOpenedFormatter.string(from: item.lastOpened))
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                // Filename beneath the title
+                                HStack(spacing: 6) {
+                                    Image(systemName: "doc")
+                                        .foregroundStyle(.secondary)
+                                    Text(item.fileName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                // Location line (kept for context)
+                                HStack(spacing: 6) {
+                                    Image(systemName: "folder")
+                                        .foregroundStyle(.secondary)
+                                    Text(item.location)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .listStyle(.inset)
+                    .frame(minHeight: 220)
+                }
+            }
+            .padding()
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [
+                    UTType(filenameExtension: "cbz") ?? .zip,
+                    .zip
+                ]
+            ) { result in
+                switch result {
+                case .success(let fileURL):
+                    print("Importer selected: \(fileURL.path)")
+                    let didAccess = fileURL.startAccessingSecurityScopedResource()
+                    print("Importer scope acquired: \(didAccess)")
+                    defer { if didAccess { fileURL.stopAccessingSecurityScopedResource() } }
+                    print("Primary importer success; proceeding to open")
+                    handleOpen(url: fileURL)
+                case .failure:
+                    print("FAILZ")
+                }
+            }
+            .onAppear { recents.load() }
+            .alert("Remove from Recents?", isPresented: $showRemoveFailedAlert, presenting: failedItem) { item in
+                Button("Remove", role: .destructive) {
+                    recents.remove(id: item.id)
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: { item in
+                Text("The file could not be opened. Would you like to remove it from Recents?\n\n\(item.fileName)")
             }
         }
+    }
+
+    private func openRecent(_ item: RecentFilesStore.Item) {
+        // First try the resolved bookmark URL
+        if let url = item.url {
+            handleOpen(url: url)
+            return
+        }
+
+        // Fallback: reconstruct a file URL from stored display fields
+        let folderPath = item.location
+        let filename = item.fileName
+        let candidate = URL(fileURLWithPath: folderPath).appendingPathComponent(filename)
+
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            // Refresh the store with a new bookmark for this path
+            recents.updateURL(for: item.id, to: candidate)
+            handleOpen(url: candidate)
+            return
+        }
+
+        // If we cannot resolve or reconstruct, prompt to remove
+        failedItem = item
+        showRemoveFailedAlert = true
+    }
+
+    private func handleOpen(url fileURL: URL) {
+        print("Opening file at: \(fileURL.path)")
+        openedFile = fileURL
+        hasFileOpened = true
     }
 }

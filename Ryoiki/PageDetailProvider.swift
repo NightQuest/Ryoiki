@@ -9,8 +9,9 @@ struct PageDetailProvider {
 
     /// Returns the total page count, favoring explicit Pages metadata when available.
     func totalPages() -> Int {
-        if let p = pages, !p.isEmpty { return p.count }
-        return ComicArchive(fileURL: fileURL).pageCount()
+        let archiveCount = ComicArchive(fileURL: fileURL).pageCount()
+        let metadataCount = (pages?.count).map { $0 } ?? 0
+        return max(archiveCount, metadataCount)
     }
 
     /// Returns whether the given zero-based index is the cover image.

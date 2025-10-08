@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import ZIPFoundation
 
 // MARK: - FileView
 /// Primary view for inspecting a selected comic file: shows the cover, statistics, and editable metadata.
@@ -14,6 +15,11 @@ struct FileView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
     @State private var currentIndex: Int = 0
+    @State private var scopedURL: URL?
+
+    // Callback to notify the parent when opening/processing fails
+    var onOpenFailed: ((URL) -> Void)?
+    var onOpenSucceeded: ((URL) -> Void)?
 
     /// Extracts a cover image (direct image or archive entry) for the currently selected file.
     private var coverImage: Image? {
@@ -21,6 +27,21 @@ struct FileView: View {
 
         // Always treat as archive
         return ComicArchive(fileURL: fileURL).coverImage()
+    }
+
+    private func beginSecurityScope(for url: URL) -> Bool {
+        if let scopedURL, scopedURL == url { return true }
+        if let scopedURL { scopedURL.stopAccessingSecurityScopedResource() }
+        let ok = url.startAccessingSecurityScopedResource()
+        if ok { scopedURL = url }
+        return ok
+    }
+
+    private func endSecurityScope() {
+        if let scopedURL {
+            scopedURL.stopAccessingSecurityScopedResource()
+            self.scopedURL = nil
+        }
     }
 
     var body: some View {
@@ -90,24 +111,111 @@ struct FileView: View {
             }
             communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
             viewModel.pageCount = viewModel.computePageCount(for: fileURL)
-            if let fileURL {
-                Task {
-                    await viewModel.refreshHashes(for: fileURL)
+
+            guard let fileURL else { return }
+            // Ensure security scope is active for file reads
+            guard beginSecurityScope(for: fileURL) else {
+                onOpenFailed?(fileURL)
+                return
+            }
+
+            // Sanity check: ensure the archive can be opened
+            do {
+                _ = try Archive(url: fileURL, accessMode: .read)
+                print("Archive open sanity check: OK for \(fileURL.lastPathComponent)")
+                onOpenSucceeded?(fileURL)
+            } catch {
+                print("Archive open sanity check failed for \(fileURL.lastPathComponent): \(error)")
+                onOpenFailed?(fileURL)
+                return
+            }
+
+            // If no parsed model provided, attempt to parse ComicInfo.xml now
+            if comicInfoData == nil {
+                if let info = ComicArchive(fileURL: fileURL).getComicInfoData(), info.parse() {
+                    comicInfoEdited.overwrite(from: info.parsed)
+                    communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
                 }
             }
+            // Ensure Pages covers all images in the archive
+            let archive = ComicArchive(fileURL: fileURL)
+            let total = archive.pageCount()
+            if total > 0 {
+                var finalPages = Array(repeating: ComicPageInfo(), count: total)
+                if let existing = comicInfoEdited.Pages, !existing.isEmpty {
+                    let hasExplicitIndices = existing.contains { Int($0.Image) != nil }
+                    if hasExplicitIndices {
+                        for p in existing {
+                            if let idx = Int(p.Image), idx >= 0, idx < total {
+                                finalPages[idx] = p
+                            }
+                        }
+                    } else {
+                        for (i, p) in existing.enumerated() where i < total {
+                            finalPages[i] = p
+                        }
+                    }
+                } else {
+                    for i in 0..<total { finalPages[i].Image = String(i) }
+                }
+                comicInfoEdited.Pages = finalPages
+                comicInfoEdited.PageCount = total
+            }
+
+            Task { await viewModel.refreshHashes(for: fileURL) }
         }
         .onChange(of: fileURL) { _, newValue in
             viewModel.pageCount = viewModel.computePageCount(for: newValue)
-            if let newValue {
-                Task {
-                    await viewModel.refreshHashes(for: newValue)
-                }
-            } else {
-                // Clear hash values when no file is selected
+            guard let newValue else {
+                // Clear when no file is selected and end scope
                 viewModel.md5Hex = ""
                 viewModel.sha1Hex = ""
                 viewModel.crc32Hex = ""
+                endSecurityScope()
+                return
             }
+
+            guard beginSecurityScope(for: newValue) else {
+                onOpenFailed?(newValue)
+                return
+            }
+
+            // Re-parse ComicInfo.xml if the incoming binding has no model
+            if comicInfoData == nil {
+                if let info = ComicArchive(fileURL: newValue).getComicInfoData(), info.parse() {
+                    comicInfoEdited.overwrite(from: info.parsed)
+                    communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
+                }
+            } else if let model = comicInfoData {
+                comicInfoEdited.overwrite(from: model)
+                communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
+            }
+            // Ensure Pages covers all images in the archive for new file
+            let archive2 = ComicArchive(fileURL: newValue)
+            let total2 = archive2.pageCount()
+            if total2 > 0 {
+                var finalPages2 = Array(repeating: ComicPageInfo(), count: total2)
+                if let existing2 = comicInfoEdited.Pages, !existing2.isEmpty {
+                    let hasExplicitIndices2 = existing2.contains { Int($0.Image) != nil }
+                    if hasExplicitIndices2 {
+                        for p in existing2 {
+                            if let idx = Int(p.Image), idx >= 0, idx < total2 {
+                                finalPages2[idx] = p
+                            }
+                        }
+                    } else {
+                        for (i, p) in existing2.enumerated() where i < total2 {
+                            finalPages2[i] = p
+                        }
+                    }
+                } else {
+                    for i in 0..<total2 { finalPages2[i].Image = String(i) }
+                }
+                comicInfoEdited.Pages = finalPages2
+                comicInfoEdited.PageCount = total2
+            }
+
+            Task { await viewModel.refreshHashes(for: newValue) }
         }
         .onChange(of: comicInfoData.map { ObjectIdentifier($0) }) { _, _ in
             if let model = comicInfoData {
@@ -117,6 +225,25 @@ struct FileView: View {
             }
             communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
         }
+        .onDisappear {
+            endSecurityScope()
+        }
+    }
+}
+
+extension FileView {
+    func onOpenFailed(_ action: @escaping (URL) -> Void) -> FileView {
+        var copy = self
+        copy.onOpenFailed = action
+        return copy
+    }
+}
+
+extension FileView {
+    func onOpenSucceeded(_ action: @escaping (URL) -> Void) -> FileView {
+        var copy = self
+        copy.onOpenSucceeded = action
+        return copy
     }
 }
 
@@ -331,3 +458,4 @@ private struct PagesTabView: View {
         return fmt.string(fromByteCount: bytes)
     }
 }
+

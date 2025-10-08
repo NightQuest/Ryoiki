@@ -11,7 +11,7 @@ enum ComicInfoXMLError: Error {
     case parsingFailed
 }
 
-class ComicInfoXML : XMLParser {
+class ComicInfoXML: XMLParser {
     public var parsed: ComicInfoModel
     private var parsingComicInfo = false
     private var parsingPages = false

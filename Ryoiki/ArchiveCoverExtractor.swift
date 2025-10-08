@@ -1,6 +1,6 @@
 import Foundation
 import ZIPFoundation
-internal import UniformTypeIdentifiers
+import UniformTypeIdentifiers
 import ImageIO
 import SwiftUI
 import CoreGraphics
@@ -8,6 +8,31 @@ import CoreGraphics
 // MARK: - ArchiveCoverExtractor
 /// Finds and decodes cover images and direct images, with in-memory caching and security-scoped access.
 enum ArchiveCoverExtractor {
+    private struct ZeroNamedMatch {
+        let number: Int
+        let hasSuffix: Bool
+        let ext: String
+    }
+
+    // MARK: - Helpers to reduce cyclomatic complexity
+    @inline(__always)
+    private static func isImageExtension(_ ext: String, commonImageExts: Set<String>) -> Bool {
+        let lower = ext.lowercased()
+        if commonImageExts.contains(lower) { return true }
+        return UTType(filenameExtension: lower)?.conforms(to: .image) == true
+    }
+
+    @inline(__always)
+    private static func zeroNamedImageMatch(for lastPathComponentLowercased: String) -> ZeroNamedMatch? {
+        // Regex for a leading number (e.g., 0, 0-foo, 0_bar) and an image extension.
+        let pattern = /^(?<num>\d+)(?:(?<sep>[-_])(?<suffix>.+))?\.(?<ext>[a-z0-9]{1,10})$/
+        guard let match = lastPathComponentLowercased.wholeMatch(of: pattern) else { return nil }
+        let numStr = String(match.output.num)
+        guard let num = Int(numStr), num == 0 else { return nil }
+        let hasSuffix = match.output.sep != nil && (match.output.suffix.map { !$0.isEmpty } ?? false)
+        return ZeroNamedMatch(number: num, hasSuffix: hasSuffix, ext: String(match.output.ext))
+    }
+
     static func coverImage(from fileURL: URL) -> Image? {
         let needsSecurity = fileURL.startAccessingSecurityScopedResource()
         defer { if needsSecurity { fileURL.stopAccessingSecurityScopedResource() } }
@@ -16,8 +41,7 @@ enum ArchiveCoverExtractor {
             let archive = try Archive(url: fileURL, accessMode: .read)
             let cacheKeyPrefix = fileURL.absoluteString + "::"
 
-            // Regex for a leading number (e.g., 0, 0-foo, 0_bar) and an image extension.
-            let pattern = /^(?<num>\d+)(?:(?<sep>[-_])(?<suffix>.+))?\.(?<ext>[a-z0-9]{1,10})$/
+            // Common image extensions cache
             let commonImageExts: Set<String> = ["jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "heic", "heif", "webp", "jp2", "j2k"]
 
             var selectedEntry: ZIPFoundation.Entry?
@@ -25,29 +49,19 @@ enum ArchiveCoverExtractor {
 
             for entry in archive where entry.type == .file {
                 let originalPath = entry.path
-                let fileLower = originalPath.split(separator: "/").last.map { $0.lowercased() } ?? originalPath.lowercased()
+                let lastComponentLower = originalPath.split(separator: "/").last.map { $0.lowercased() } ?? originalPath.lowercased()
 
                 // Track first image as a fallback (by extension or UTType)
-                if firstImageEntry == nil, let dot = fileLower.lastIndex(of: ".") {
-                    let ext = String(fileLower[fileLower.index(after: dot)...])
-                    let isImageByUTType = UTType(filenameExtension: ext)?.conforms(to: .image) == true
-                    if isImageByUTType || commonImageExts.contains(ext) {
+                if firstImageEntry == nil, let dot = lastComponentLower.lastIndex(of: ".") {
+                    let ext = String(lastComponentLower[lastComponentLower.index(after: dot)...])
+                    if isImageExtension(ext, commonImageExts: commonImageExts) {
                         firstImageEntry = entry
                     }
                 }
 
                 // Check for zero-named rule on last component
-                guard let m = fileLower.wholeMatch(of: pattern) else { continue }
-
-                let ext = String(m.output.ext)
-                let isImage = UTType(filenameExtension: ext)?.conforms(to: .image) == true || commonImageExts.contains(ext)
-                guard isImage else { continue }
-
-                guard let num = Int(String(m.output.num)), num == 0 else { continue }
-
-                if m.output.sep != nil {
-                    guard let suffix = m.output.suffix.map({ String($0) }), !suffix.isEmpty else { continue }
-                }
+                guard let match = zeroNamedImageMatch(for: lastComponentLower) else { continue }
+                guard isImageExtension(match.ext, commonImageExts: commonImageExts) else { continue }
 
                 selectedEntry = entry
                 break

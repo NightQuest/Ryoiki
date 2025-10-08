@@ -102,7 +102,7 @@ struct BookInformationForm: View {
                                 ForEach(selectedProperties.sorted { a, b in orderIndex(a) < orderIndex(b) }, id: \.self) { prop in
                                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                                         Text(prop.displayName)
-                                            .frame(width: UIConstants.labelColumnWidth, alignment: .leading)
+                                            .frame(width: 120, alignment: .leading)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                             .help(prop.displayName)

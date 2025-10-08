@@ -42,8 +42,7 @@ final class FileViewModel: ObservableObject {
             md5Hex = "—"; sha1Hex = "—"; crc32Hex = "—"; return
         }
 
-        let didAccess = url.startAccessingSecurityScopedResource()
-        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+        // NOTE: Per Option C, all read utilities (e.g., FileUtilities.computeFileDigests) must manage their own security-scoped access.
 
         let task = Task {
             return try? FileUtilities.computeFileDigests(url: url)
@@ -56,3 +55,4 @@ final class FileViewModel: ObservableObject {
         self.crc32Hex = result?.crc32 ?? "-"
     }
 }
+
