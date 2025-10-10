@@ -51,13 +51,13 @@ struct MainView: View {
                         showReauthAlert = true
                         hasFileOpened = false
                         openedFile = nil
-                        if hasSecurityScope {
-                            url.stopAccessingSecurityScopedResource()
-                            hasSecurityScope = false
-                        }
                     }
                     .onOpenSucceeded { url in
-                        _ = recents.add(url: url)
+                        if let item = recents.add(url: url) {
+                            if let resolved = recents.items.first(where: { $0.id == item.id })?.url {
+                                recents.updateURL(for: item.id, to: resolved)
+                            }
+                        }
                     }
                     .transition(.opacity)
             } else {
@@ -112,14 +112,6 @@ struct MainView: View {
                                     .glassCapsule()
                             }
                             .buttonStyle(.plain)
-    #if !os(macOS)
-                            .hoverEffect(.highlight)
-    #else
-                            .onHover { _ in
-                                // Subtle visual cue on macOS
-                                // No-op here; keep for parity or add custom effect if desired
-                            }
-    #endif
                         }
 
                         // Recents Header
@@ -180,11 +172,6 @@ struct MainView: View {
                                             }
                                         }
                                         .buttonStyle(.plain)
-    #if !os(macOS)
-                                        .hoverEffect(.highlight)
-    #else
-                                        .onHover { _ in }
-    #endif
                                         .transition(.opacity)
                                     }
                                 }
@@ -240,7 +227,6 @@ struct MainView: View {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             hasFileOpened = false
                         }
-                        hasSecurityScope = false
                     }
                 }
                 .alert("Re-authorize File Access?", isPresented: $showReauthAlert, presenting: reauthTargetURL) { _ in
@@ -309,12 +295,6 @@ struct MainView: View {
 
     private func handleOpen(url fileURL: URL) {
         print("Opening file at: \(fileURL.path)")
-        // Attempt to start a security-scoped session if available
-        var didAccess = false
-        #if os(iOS) || os(macOS)
-        didAccess = fileURL.startAccessingSecurityScopedResource()
-        #endif
-        hasSecurityScope = didAccess
         openedFile = fileURL
         withAnimation(.easeInOut(duration: 0.2)) {
             hasFileOpened = true

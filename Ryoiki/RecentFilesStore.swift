@@ -18,7 +18,8 @@ final class RecentFilesStore: ObservableObject {
             self.lastOpened = lastOpened
             self.title = title
             // Create security-scoped bookmark data for the URL when possible.
-            if let data = try? url.bookmarkData(options: [.withSecurityScope],
+            let options: URL.BookmarkCreationOptions = [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+            if let data = try? url.bookmarkData(options: options,
                                                 includingResourceValuesForKeys: nil,
                                                 relativeTo: nil) {
                 self.bookmarkData = data
@@ -39,15 +40,15 @@ final class RecentFilesStore: ObservableObject {
             self.displayLocation = displayLocation
         }
 
-        // Resolves the URL from bookmark data if present; falls back to nil if resolution fails.
+        // Resolves the URL from bookmark data if present; falls back to nil if resolution fails or bookmark is stale.
         var url: URL? {
             guard let bookmarkData else { return nil }
             var isStale = false
+            let options: URL.BookmarkResolutionOptions = [.withSecurityScope, .withoutUI]
             if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
-                                       options: [.withSecurityScope, .withoutUI],
+                                       options: options,
                                        relativeTo: nil,
-                                       bookmarkDataIsStale: &isStale) {
-                // If stale, we still return the resolved URL; the store will recreate fresh bookmarks during load/normalization
+                                       bookmarkDataIsStale: &isStale), !isStale {
                 return resolved
             }
             return nil
@@ -56,8 +57,9 @@ final class RecentFilesStore: ObservableObject {
         func resolveBookmark() -> (url: URL?, isStale: Bool) {
             guard let bookmarkData else { return (nil, false) }
             var isStale = false
+            let options: URL.BookmarkResolutionOptions = [.withSecurityScope, .withoutUI]
             let url = try? URL(resolvingBookmarkData: bookmarkData,
-                               options: [.withSecurityScope, .withoutUI],
+                               options: options,
                                relativeTo: nil,
                                bookmarkDataIsStale: &isStale)
             return (url, isStale)
@@ -98,7 +100,8 @@ final class RecentFilesStore: ObservableObject {
                 for i in items.indices {
                     let (resolved, isStale) = items[i].resolveBookmark()
                     if isStale, let resolved {
-                        if let fresh = try? resolved.bookmarkData(options: [.withSecurityScope],
+                        let creationOptions: URL.BookmarkCreationOptions = [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+                        if let fresh = try? resolved.bookmarkData(options: creationOptions,
                                                                   includingResourceValuesForKeys: nil,
                                                                   relativeTo: nil) {
                             items[i].bookmarkData = fresh
@@ -151,6 +154,53 @@ final class RecentFilesStore: ObservableObject {
         }
     }
 
+    private func creationOptionsForBookmark() -> URL.BookmarkCreationOptions {
+        [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+    }
+
+    private func indexMatching(url std: URL, stdFileName: String, stdLocation: String) -> Int? {
+        items.firstIndex { item in
+            if let existingURL = item.url?.standardizedFileURL {
+                return existingURL == std
+            }
+            return (item.displayFileName == stdFileName) && (item.displayLocation == stdLocation)
+        }
+    }
+
+    private func normalizeStaleBookmarkIfNeeded(at index: Int) {
+        let (resolved, isStale) = items[index].resolveBookmark()
+        guard isStale, let resolved else { return }
+        let creationOptions = creationOptionsForBookmark()
+        if let fresh = try? resolved.bookmarkData(options: creationOptions,
+                                                  includingResourceValuesForKeys: nil,
+                                                  relativeTo: nil) {
+            items[index].bookmarkData = fresh
+        }
+    }
+
+    private func enrichTitleIfNeeded(for std: URL, stdFileName: String, stdLocation: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            let archive = ComicArchive(fileURL: std)
+            if let info = archive.getComicInfoData(), info.parse() {
+                let t = info.parsed.Title.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        if let idx = self.indexMatching(url: std, stdFileName: stdFileName, stdLocation: stdLocation) {
+                            let updated = Item(url: std, lastOpened: Date(), title: t, id: self.items[idx].id)
+                            self.items.remove(at: idx)
+                            self.items.insert(updated, at: 0)
+                            self.items = Array(self.items.prefix(5))
+                            self.save()
+                            print("Recent Files: Enriched title for \(std.lastPathComponent) -> \(t)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: Public API
     @discardableResult
     func add(url: URL, title: String? = nil) -> Item? {
@@ -159,58 +209,31 @@ final class RecentFilesStore: ObservableObject {
         let stdLocation = std.deletingLastPathComponent().path
 
         // Determine initial title: prefer provided title, else existing stored title.
-        let initialTitle: String? = title ?? items.first {
-            // Prefer matching by resolved standardized URL
-            if let existingURL = $0.url?.standardizedFileURL {
-                return existingURL == std
-            }
-            // Fallback: match by stored display fields (filename + location)
-            return ($0.displayFileName == stdFileName) && ($0.displayLocation == stdLocation)
-        }?.title
+        let existingIndex = indexMatching(url: std, stdFileName: stdFileName, stdLocation: stdLocation)
+        let initialTitle: String? = title ?? existingIndex.flatMap { items[$0].title }
 
-        // Remove any existing entries that resolve to the same standardized URL
+        // Remove any existing entries that resolve to the same standardized URL or display fields
         items.removeAll { item in
-            if let existingURL = item.url?.standardizedFileURL {
-                return existingURL == std
-            }
-            // Fallback dedupe when bookmark URL is unavailable or failed to resolve
+            if let existingURL = item.url?.standardizedFileURL { return existingURL == std }
             return (item.displayFileName == stdFileName) && (item.displayLocation == stdLocation)
         }
 
         // Create a new item with bookmark data
         let newItem = Item(url: std, lastOpened: Date(), title: initialTitle)
         items.insert(newItem, at: 0)
+
+        // Normalize stale bookmark if needed
+        if let idx = items.firstIndex(where: { $0.id == newItem.id }) {
+            normalizeStaleBookmarkIfNeeded(at: idx)
+        }
+
         items = Array(items.prefix(5))
         save()
         print("Recent Files: Added \(std.lastPathComponent)")
 
         // If we don't have a title yet, enrich it asynchronously from ComicInfo.xml.
         if initialTitle == nil || initialTitle?.isEmpty == true {
-            Task { [weak self] in
-                guard let self else { return }
-                let archive = ComicArchive(fileURL: std)
-                if let info = archive.getComicInfoData(), info.parse() {
-                    let t = info.parsed.Title.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !t.isEmpty {
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self else { return }
-                            if let idx = self.items.firstIndex(where: { item in
-                                if let existingURL = item.url?.standardizedFileURL {
-                                    return existingURL == std
-                                }
-                                return (item.displayFileName == stdFileName) && (item.displayLocation == stdLocation)
-                            }) {
-                                let updated = Item(url: std, lastOpened: Date(), title: t, id: self.items[idx].id)
-                                self.items.remove(at: idx)
-                                self.items.insert(updated, at: 0)
-                                self.items = Array(self.items.prefix(5))
-                                self.save()
-                                print("Recent Files: Enriched title for \(std.lastPathComponent) -> \(t)")
-                            }
-                        }
-                    }
-                }
-            }
+            enrichTitleIfNeeded(for: std, stdFileName: stdFileName, stdLocation: stdLocation)
         }
 
         return newItem
@@ -237,5 +260,11 @@ final class RecentFilesStore: ObservableObject {
             save()
             print("Recent Files: Updated URL for \(updated.fileName)")
         }
+    }
+
+    static func withReadAccess<T>(to url: URL, perform work: () throws -> T) rethrows -> T {
+        let ok = url.startAccessingSecurityScopedResource()
+        defer { if ok { url.stopAccessingSecurityScopedResource() } }
+        return try work()
     }
 }

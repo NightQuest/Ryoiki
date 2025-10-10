@@ -93,14 +93,6 @@ struct FileView: View {
             return
         }
 
-        // Diagnostic: bookmark capability
-        do {
-            let data = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
-            print("[FileView] URL can create scoped bookmark: size=\(data.count)")
-        } catch {
-            print("[FileView] URL cannot create scoped bookmark: \(error)")
-        }
-
         guard beginSecurityScope(for: url) else {
             print("[FileView] beginSecurityScope failed for: \(url.path)")
             onOpenFailed?(url)
