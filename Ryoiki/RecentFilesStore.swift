@@ -69,7 +69,15 @@ final class RecentFilesStore: ObservableObject {
             return URL(fileURLWithPath: "/").deletingPathExtension().lastPathComponent
         }
         var fileName: String { url?.lastPathComponent ?? displayFileName ?? URL(fileURLWithPath: "/").lastPathComponent }
-        var location: String { url?.deletingLastPathComponent().path ?? displayLocation ?? URL(fileURLWithPath: "/").deletingLastPathComponent().path }
+        var location: String {
+            if let path = url?.deletingLastPathComponent().path {
+                return path
+            } else if let dp = displayLocation {
+                return dp
+            } else {
+                return URL(fileURLWithPath: "/").deletingLastPathComponent().path
+            }
+        }
     }
 
     @Published private(set) var items: [Item] = []
@@ -90,7 +98,9 @@ final class RecentFilesStore: ObservableObject {
                 for i in items.indices {
                     let (resolved, isStale) = items[i].resolveBookmark()
                     if isStale, let resolved {
-                        if let fresh = try? resolved.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
+                        if let fresh = try? resolved.bookmarkData(options: [.withSecurityScope],
+                                                                  includingResourceValuesForKeys: nil,
+                                                                  relativeTo: nil) {
                             items[i].bookmarkData = fresh
                             didRefreshAny = true
                         }

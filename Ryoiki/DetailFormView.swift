@@ -35,7 +35,8 @@ struct DetailFormView: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .help("Bookmark")
-                        TextField("", text: $bookmark)
+                        TextField("", text: $bookmark, axis: .vertical)
+                            .lineLimit(1...5)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     .padding(.vertical, 4)
@@ -56,12 +57,15 @@ struct DetailFormView: View {
 
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Text("Key")
+                            .lineLimit(1...5)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .help("Key")
-                        TextField("", text: $key)
+                        TextField("", text: $key, axis: .vertical)
+                            .lineLimit(1...5)
                             .frame(maxWidth: .infinity, alignment: .trailing)
+
                     }
                     .padding(.vertical, 4)
                     Divider()

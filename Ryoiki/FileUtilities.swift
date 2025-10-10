@@ -24,7 +24,7 @@ enum FileUtilities {
 
     /// Returns page count for the given URL: 1 for direct images, otherwise archive page count.
     static func pageCount(for url: URL) -> Int {
-        return isDirectImageURL(url) ? 1 : ComicArchive(fileURL: url).pageCount()
+        isDirectImageURL(url) ? 1 : ComicArchive(fileURL: url).pageCount()
     }
 
     /// Copies text to the system pasteboard on AppKit/UIKit platforms.

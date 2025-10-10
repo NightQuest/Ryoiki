@@ -28,6 +28,7 @@ public struct SnappingSlider: View {
 
     public var body: some View {
         GeometryReader { geo in
+            let sortedTargets = snapTargets.sorted()
             // Helper closures to map value <-> x position
             let width = geo.size.width
             let xForValue: (Double) -> CGFloat = { val in
@@ -49,7 +50,7 @@ public struct SnappingSlider: View {
                     .frame(maxWidth: .infinity)
 
                 // Tick marks
-                ForEach(snapTargets.sorted(), id: \.self) { tick in
+                ForEach(sortedTargets, id: \.self) { tick in
                     Rectangle()
                         .fill(Color.primary.opacity(0.5))
                         .frame(width: 2, height: trackHeight * 2)
@@ -95,51 +96,20 @@ public struct SnappingSlider: View {
     private func nearestSnap(to val: Double) -> Double? {
         guard !snapTargets.isEmpty else { return nil }
 
-        // Find the minimal distance
-        var nearest: Double?
-        var minDistance = Double.infinity
+        var nearest = snapTargets[0]
+        var minDistance = abs(nearest - val)
 
-        // Candidates with minimal distance
-        var candidates: [Double] = []
-
-        for tick in snapTargets {
+        for i in 1..<snapTargets.count {
+            let tick = snapTargets[i]
             let dist = abs(tick - val)
             if dist < minDistance {
                 minDistance = dist
-                candidates = [tick]
+                nearest = tick
             } else if dist == minDistance {
-                candidates.append(tick)
+                // Tie-breaker: prefer the lower tick
+                nearest = min(nearest, tick)
             }
         }
-
-        if candidates.count == 1 {
-            nearest = candidates[0]
-        } else {
-            // Tie-break by fractional position within the segment between lowerBound and upperBound
-            // Use logic similar to ReaderView: prefer the one where val is closer to the lower tick
-            // If val exactly at midpoint, prefer the lower tick
-
-            // Sort candidates ascending
-            let sortedCandidates = candidates.sorted()
-
-            func fractionalPosition(_ tick: Double) -> Double {
-                guard let idx = sortedCandidates.firstIndex(of: tick) else { return 0 }
-                let lower = idx > 0 ? sortedCandidates[idx - 1] : range.lowerBound
-                let upper = idx < sortedCandidates.count - 1 ? sortedCandidates[idx + 1] : range.upperBound
-                if upper == lower { return 0 }
-                return (val - lower) / (upper - lower)
-            }
-
-            // Compute fractional positions for candidates
-            // Actually simpler: just pick the lower tick if val is exactly midway between candidates
-            // or if val is closer to lower tick
-
-            // Because the candidates are at equal distance, val is midpoint between them or exactly on one.
-            // So pick the lower tick
-
-            nearest = sortedCandidates.first
-        }
-
         return nearest
     }
 }

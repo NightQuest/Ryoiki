@@ -16,79 +16,214 @@ struct BookInformationForm: View {
     }
 
     @ViewBuilder
-    private func editor(for property: ComicInfoModel.EditableProperty) -> some View {
-        switch property {
-        case .Title: TextField("", text: $comicInfo.Title)
-        case .Series: TextField("", text: $comicInfo.Series)
-        case .Number: TextField("", text: $comicInfo.Number)
-        case .Count:
-            TextField(value: $comicInfo.Count, format: .number) { EmptyView() }.labelsHidden()
-        case .Volume:
-            TextField(value: $comicInfo.Volume, format: .number) { EmptyView() }.labelsHidden()
-        case .AlternateSeries: TextField("", text: $comicInfo.AlternateSeries)
-        case .AlternateNumber: TextField("", text: $comicInfo.AlternateNumber)
-        case .AlternateCount:
-            TextField(value: $comicInfo.AlternateCount, format: .number) { EmptyView() }.labelsHidden()
-        case .Summary:
-            TextField("", text: $comicInfo.Summary, axis: .vertical).lineLimit(1...).submitLabel(.return).submitScope(false)
-        case .Notes:
-            TextField("", text: $comicInfo.Notes, axis: .vertical).lineLimit(1...).submitLabel(.return).submitScope(false)
-        case .Writer: TextField("", text: $comicInfo.Writer)
-        case .Penciller: TextField("", text: $comicInfo.Penciller)
-        case .Inker: TextField("", text: $comicInfo.Inker)
-        case .Colorist: TextField("", text: $comicInfo.Colorist)
-        case .Letterer: TextField("", text: $comicInfo.Letterer)
-        case .CoverArtist: TextField("", text: $comicInfo.CoverArtist)
-        case .Editor: TextField("", text: $comicInfo.Editor)
-        case .Publisher: TextField("", text: $comicInfo.Publisher)
-        case .Imprint: TextField("", text: $comicInfo.Imprint)
-        case .Genre: TextField("", text: $comicInfo.Genre)
-        case .Web: TextField("", text: $comicInfo.Web)
-        case .LanguageISO:
+    private func textFieldEditor(text: Binding<String>) -> some View {
+        TextField("", text: text)
+    }
+
+    @ViewBuilder
+    private func numberFieldEditor(value: Binding<Int?>) -> some View {
+        TextField(value: value, format: .number) { EmptyView() }
+            .labelsHidden()
+    }
+
+    @ViewBuilder
+    private func numberFieldEditor(value: Binding<Int>) -> some View {
+        // Bridge non-optional Int to optional for the TextField and back
+        let optionalBinding = Binding<Int?>(
+            get: { value.wrappedValue },
+            set: { newValue in
+                value.wrappedValue = newValue ?? 0
+            }
+        )
+        TextField(value: optionalBinding, format: .number) { EmptyView() }
+            .labelsHidden()
+    }
+
+    @ViewBuilder
+    private func multilineEditor(text: Binding<String>) -> some View {
+        TextField("", text: text, axis: .vertical)
+            .lineLimit(1...)
+            .submitLabel(.return)
+            .submitScope(false)
+    }
+
+    private var languagePicker: some View {
+        Picker("", selection: $comicInfo.LanguageISO) {
+            ForEach(languageOptions) { option in
+                Text("\(option.nativeName) (\(option.code))").tag(option.code)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+    }
+
+    private var yesNoPicker: some View {
+        Picker("", selection: $comicInfo.BlackAndWhite) {
+            ForEach(YesNo.allCases) { option in
+                Text("\(option.rawValue)").tag(option)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+    }
+
+    private var mangaPicker: some View {
+        Picker("", selection: $comicInfo.Manga) {
+            ForEach(Manga.allCases) { option in
+                Text("\(option.rawValue)").tag(option)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+    }
+
+    private var ageRatingPicker: some View {
+        Picker("", selection: $comicInfo.AgeRating) {
+            ForEach(AgeRating.allCases, id: \.self) { rating in
+                Text(rating.rawValue).tag(rating)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+    }
+
+    private var communityRatingEditor: some View {
+        StarRatingView(value: $communityRatingValue, max: 5)
+            .onChange(of: communityRatingValue) {
+                comicInfo.CommunityRating = communityRatingValue > 0 ? Rating(rawValue: communityRatingValue) : nil
+            }
+    }
+
+    private var publishDatePicker: some View {
+        DatePicker("", selection: Binding(
+            get: { comicInfo.publishDate },
+            set: { comicInfo.publishDate = $0 }
+        ), displayedComponents: .date)
+        .labelsHidden()
+    }
+
+    private struct PropertyEditor: View {
+        @ObservedObject var comicInfo: ComicInfoModel
+        @Binding var communityRatingValue: Int
+        let property: ComicInfoModel.EditableProperty
+
+        @ViewBuilder
+        private func textFieldEditor(text: Binding<String>) -> some View { TextField("", text: text) }
+
+        @ViewBuilder
+        private func numberFieldEditor(value: Binding<Int?>) -> some View {
+            TextField(value: value, format: .number) { EmptyView() }.labelsHidden()
+        }
+
+        @ViewBuilder
+        private func numberFieldEditor(value: Binding<Int>) -> some View {
+            let optionalBinding = Binding<Int?>(get: { value.wrappedValue }, set: { value.wrappedValue = $0 ?? 0 })
+            TextField(value: optionalBinding, format: .number) { EmptyView() }.labelsHidden()
+        }
+
+        @ViewBuilder
+        private func multilineEditor(text: Binding<String>) -> some View {
+            TextField("", text: text, axis: .vertical)
+                .lineLimit(1...)
+                .submitLabel(.return)
+                .submitScope(false)
+        }
+
+        private var languagePicker: some View {
             Picker("", selection: $comicInfo.LanguageISO) {
                 ForEach(languageOptions) { option in
                     Text("\(option.nativeName) (\(option.code))").tag(option.code)
                 }
-            }.labelsHidden().pickerStyle(.menu)
-        case .Format: TextField("", text: $comicInfo.Format)
-        case .BlackAndWhite:
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+
+        private var yesNoPicker: some View {
             Picker("", selection: $comicInfo.BlackAndWhite) {
                 ForEach(YesNo.allCases) { option in
                     Text("\(option.rawValue)").tag(option)
                 }
-            }.labelsHidden().pickerStyle(.menu)
-        case .Manga:
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+
+        private var mangaPicker: some View {
             Picker("", selection: $comicInfo.Manga) {
                 ForEach(Manga.allCases) { option in
                     Text("\(option.rawValue)").tag(option)
                 }
-            }.labelsHidden().pickerStyle(.menu)
-        case .Characters: TextField("", text: $comicInfo.Characters)
-        case .Teams: TextField("", text: $comicInfo.Teams)
-        case .Locations: TextField("", text: $comicInfo.Locations)
-        case .ScanInformation: TextField("", text: $comicInfo.ScanInformation)
-        case .StoryArc: TextField("", text: $comicInfo.StoryArc)
-        case .SeriesGroup: TextField("", text: $comicInfo.SeriesGroup)
-        case .AgeRating:
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+
+        private var ageRatingPicker: some View {
             Picker("", selection: $comicInfo.AgeRating) {
                 ForEach(AgeRating.allCases, id: \.self) { rating in
                     Text(rating.rawValue).tag(rating)
                 }
-            }.labelsHidden().pickerStyle(.menu)
-        case .CommunityRating:
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+
+        private var communityRatingEditor: some View {
             StarRatingView(value: $communityRatingValue, max: 5)
                 .onChange(of: communityRatingValue) {
                     comicInfo.CommunityRating = communityRatingValue > 0 ? Rating(rawValue: communityRatingValue) : nil
                 }
-        case .MainCharacterOrTeam: TextField("", text: $comicInfo.MainCharacterOrTeam)
-        case .Review:
-            TextField("", text: $comicInfo.Review, axis: .vertical).lineLimit(1...).submitLabel(.return).submitScope(false)
-        case .PublishDate:
+        }
+
+        private var publishDatePicker: some View {
             DatePicker("", selection: Binding(
                 get: { comicInfo.publishDate },
-                set: { comicInfo.publishDate = $0
-                }),
-                       displayedComponents: .date).labelsHidden()
+                set: { comicInfo.publishDate = $0 }
+            ), displayedComponents: .date)
+            .labelsHidden()
+        }
+
+        @ViewBuilder
+        var body: some View {
+            switch property {
+            case .Title: textFieldEditor(text: $comicInfo.Title)
+            case .Series: textFieldEditor(text: $comicInfo.Series)
+            case .Number: textFieldEditor(text: $comicInfo.Number)
+            case .Count: numberFieldEditor(value: $comicInfo.Count)
+            case .Volume: numberFieldEditor(value: $comicInfo.Volume)
+            case .AlternateSeries: textFieldEditor(text: $comicInfo.AlternateSeries)
+            case .AlternateNumber: textFieldEditor(text: $comicInfo.AlternateNumber)
+            case .AlternateCount: numberFieldEditor(value: $comicInfo.AlternateCount)
+            case .Summary: multilineEditor(text: $comicInfo.Summary)
+            case .Notes: multilineEditor(text: $comicInfo.Notes)
+            case .Writer: textFieldEditor(text: $comicInfo.Writer)
+            case .Penciller: textFieldEditor(text: $comicInfo.Penciller)
+            case .Inker: textFieldEditor(text: $comicInfo.Inker)
+            case .Colorist: textFieldEditor(text: $comicInfo.Colorist)
+            case .Letterer: textFieldEditor(text: $comicInfo.Letterer)
+            case .CoverArtist: textFieldEditor(text: $comicInfo.CoverArtist)
+            case .Editor: textFieldEditor(text: $comicInfo.Editor)
+            case .Publisher: textFieldEditor(text: $comicInfo.Publisher)
+            case .Imprint: textFieldEditor(text: $comicInfo.Imprint)
+            case .Genre: textFieldEditor(text: $comicInfo.Genre)
+            case .Web: textFieldEditor(text: $comicInfo.Web)
+            case .LanguageISO: languagePicker
+            case .Format: textFieldEditor(text: $comicInfo.Format)
+            case .BlackAndWhite: yesNoPicker
+            case .Manga: mangaPicker
+            case .Characters: textFieldEditor(text: $comicInfo.Characters)
+            case .Teams: textFieldEditor(text: $comicInfo.Teams)
+            case .Locations: textFieldEditor(text: $comicInfo.Locations)
+            case .ScanInformation: textFieldEditor(text: $comicInfo.ScanInformation)
+            case .StoryArc: textFieldEditor(text: $comicInfo.StoryArc)
+            case .SeriesGroup: textFieldEditor(text: $comicInfo.SeriesGroup)
+            case .AgeRating: ageRatingPicker
+            case .CommunityRating: communityRatingEditor
+            case .MainCharacterOrTeam: textFieldEditor(text: $comicInfo.MainCharacterOrTeam)
+            case .Review: multilineEditor(text: $comicInfo.Review)
+            case .PublishDate: publishDatePicker
+            }
         }
     }
 
@@ -106,7 +241,7 @@ struct BookInformationForm: View {
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                             .help(prop.displayName)
-                                        editor(for: prop)
+                                        PropertyEditor(comicInfo: comicInfo, communityRatingValue: $communityRatingValue, property: prop)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                         Button(role: .destructive) {
                                             if let idx = selectedProperties.firstIndex(of: prop) { selectedProperties.remove(at: idx) }

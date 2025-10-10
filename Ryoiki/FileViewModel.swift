@@ -45,7 +45,7 @@ final class FileViewModel: ObservableObject {
         // NOTE: Per Option C, all read utilities (e.g., FileUtilities.computeFileDigests) must manage their own security-scoped access.
 
         let task = Task {
-            return try? FileUtilities.computeFileDigests(url: url)
+            try? FileUtilities.computeFileDigests(url: url)
         }
 
         let result = await task.value
@@ -55,4 +55,3 @@ final class FileViewModel: ObservableObject {
         self.crc32Hex = result?.crc32 ?? "-"
     }
 }
-

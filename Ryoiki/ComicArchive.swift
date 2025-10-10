@@ -26,7 +26,7 @@ struct ComicArchive {
 
     /// Natural (Finder-like) sort for entry paths.
     private static func sortNaturally(_ paths: [String]) -> [String] {
-        return paths.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        paths.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     /// Gathers image entry paths from an already-opened archive without sorting.
@@ -76,7 +76,7 @@ struct ComicArchive {
 
     // Extracts a cover Image from the archive at fileURL, if possible
     func coverImage() -> Image? {
-        return withArchive { archive in
+        withArchive { archive in
             guard let chosenPath = Self.chooseCoverPath(in: archive) else { return nil }
             return archive.image(atEntryPath: chosenPath, cacheKeyPrefix: fileURL.absoluteString)
         }
@@ -84,21 +84,21 @@ struct ComicArchive {
 
     // Returns an Image for a specific entry path if it exists and is decodable
     func image(atEntryPath path: String, cacheKeyPrefix: String? = nil) -> Image? {
-        return withArchive { archive in
-            return archive.image(atEntryPath: path, cacheKeyPrefix: cacheKeyPrefix ?? fileURL.absoluteString)
+        withArchive { archive in
+            archive.image(atEntryPath: path, cacheKeyPrefix: cacheKeyPrefix ?? fileURL.absoluteString)
         }
     }
 
     // Lists all entry paths in the archive (files and directories)
     func allEntryPaths() -> [String] {
-        return withArchive { archive in
-            return Array(archive.map { $0.path })
+        withArchive { archive in
+            Array(archive.map { $0.path })
         } ?? []
     }
 
     // Lists only file entry paths (excluding directories)
     func fileEntryPaths() -> [String] {
-        return withArchive { archive in
+        withArchive { archive in
             var paths: [String] = []
             for entry in archive where entry.type == .file {
                 paths.append(entry.path)
@@ -109,7 +109,7 @@ struct ComicArchive {
 
     // Lists file entry paths that appear to be images by extension
     func imageEntryPaths() -> [String] {
-        return withArchive { archive in
+        withArchive { archive in
             let paths = Self.imageEntryPaths(in: archive)
             return Self.sortNaturally(paths)
         } ?? []
@@ -117,12 +117,12 @@ struct ComicArchive {
 
     // Total number of image pages (1-based indexing for public APIs)
     func pageCount() -> Int {
-        return imageEntryPaths().count
+        imageEntryPaths().count
     }
 
     // Returns the 1-based index of the cover page if it can be identified
     func coverPageIndex() -> Int? {
-        return withArchive { archive in
+        withArchive { archive in
             let paths = Self.sortNaturally(Self.imageEntryPaths(in: archive))
 
             guard let coverPath = Self.chooseCoverPath(in: archive) else { return nil }
@@ -142,7 +142,7 @@ struct ComicArchive {
 
     // Indicates whether a given 1-based page number is the selected cover page
     func isCoverImage(pageNumber: Int) -> Bool {
-        return withArchive { archive in
+        withArchive { archive in
             let paths = Self.sortNaturally(Self.imageEntryPaths(in: archive))
             guard pageNumber > 0, pageNumber <= paths.count else { return false }
 
@@ -154,7 +154,7 @@ struct ComicArchive {
 
     // Returns the raw data for ComicInfo.xml if present in the archive
     func getComicInfoData() -> ComicInfoXML? {
-        return withArchive { archive in
+        withArchive { archive in
             // Find an entry named "ComicInfo.xml" (case-insensitive) only at the root (no subdirectories)
             guard let entry = archive.first(where: {
                 // Must be at root (no subdirectories) and named exactly "ComicInfo.xml" (case-insensitive)
@@ -171,7 +171,7 @@ struct ComicArchive {
 
     // Checks whether an entry with the given path exists
     func containsEntry(path: String) -> Bool {
-        return withArchive { archive in
+        withArchive { archive in
             for entry in archive where entry.path == path { return true }
             return false
         } ?? false
@@ -179,7 +179,7 @@ struct ComicArchive {
 
     // Reads raw Data for a specific entry path, if present
     func data(atEntryPath path: String) -> Data? {
-        return withArchive { archive in
+        withArchive { archive in
             guard let entry = archive.first(where: { $0.path == path }) else { return nil }
             var data = Data()
             do {

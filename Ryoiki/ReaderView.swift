@@ -126,45 +126,44 @@ public struct ReaderView<ImageContent: View>: View {
                     thumbSize: 28
                 )
                 .background {
-                    GeometryReader { geo in
-                        let width = geo.size.width
-                        let height = geo.size.height
-                        let usableWidth = max(1, width - 28) // account for thumb size roughly
-                        let midY = height / 2
-                        let maxPageIndex = max(0, totalPages - 1)
-                        Canvas { context, _ in
-                            guard totalPages > 1, maxPageIndex > 0 else { return }
+                    if attributeKindForPage != nil {
+                        GeometryReader { geo in
+                            let width = geo.size.width
+                            let height = geo.size.height
+                            let usableWidth = max(1, width - 28)
+                            let midY = height / 2
+                            let maxPageIndex = max(0, totalPages - 1)
+                            Canvas { context, _ in
+                                guard totalPages > 1, maxPageIndex > 0 else { return }
 
-                            for item in 0..<totalPages {
-                                // Determine attribute and color; skip drawing if none
-                                guard let kind = attributeKindForPage?(item) else { continue }
+                                for item in 0..<totalPages {
+                                    guard let kind = attributeKindForPage?(item) else { continue }
 
-                                let color: Color
-                                let tickHeight: CGFloat
-                                switch kind {
-                                case .doublePage:
-                                    color = .orange
-                                    tickHeight = height * 0.9
-                                case .bookmark:
-                                    color = .blue
-                                    tickHeight = height * 0.7
-                                case .key:
-                                    color = .pink
-                                    tickHeight = height * 0.55
-                                case .none:
-                                    continue
+                                    let color: Color
+                                    let tickHeight: CGFloat
+                                    switch kind {
+                                    case .doublePage:
+                                        color = .orange
+                                        tickHeight = height * 0.9
+                                    case .bookmark:
+                                        color = .blue
+                                        tickHeight = height * 0.7
+                                    case .key:
+                                        color = .pink
+                                        tickHeight = height * 0.55
+                                    case .none:
+                                        continue
+                                    }
+
+                                    let fraction: CGFloat = CGFloat(item) / CGFloat(maxPageIndex)
+                                    let x: CGFloat = fraction * usableWidth + 14
+
+                                    let rect = CGRect(x: x - 1, y: midY - tickHeight / 2, width: 2, height: tickHeight)
+                                    context.fill(Path(rect), with: .color(color))
                                 }
-
-                                // Position matches previous logic
-                                let fraction: CGFloat = CGFloat(item) / CGFloat(maxPageIndex)
-                                let x: CGFloat = fraction * usableWidth + 14 // center with thumb radius
-
-                                // Draw the tick as a 2pt wide rectangle
-                                let rect = CGRect(x: x - 1, y: midY - tickHeight / 2, width: 2, height: tickHeight)
-                                context.fill(Path(rect), with: .color(color))
                             }
+                            .accessibilityHidden(true)
                         }
-                        .accessibilityHidden(true)
                     }
                 }
                 .sensoryFeedback(.impact, trigger: currentIndex)
@@ -216,7 +215,7 @@ public struct ReaderView<ImageContent: View>: View {
                     .scaledToFit()
                     .foregroundStyle(.secondary)
             } pageHasMeaningfulValues: { i in
-                return i % 3 == 0
+                i % 3 == 0
             }
             .padding()
             .frame(height: 400)

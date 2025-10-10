@@ -50,25 +50,18 @@ extension ComicInfoXML: XMLParserDelegate {
         case "ComicInfo":
             parsingComicInfo = true
             hasChildren = true
-            break
-
         case "Pages":
             parsingPages = true
             hasChildren = true
             parsedPages.removeAll(keepingCapacity: false)
-            break
-
         case "Page":
             if parsingPages {
                 // capture attributes for this page
                 currentPageAttributes = attributeDict
             }
             hasChildren = false
-            break
-
         default:
             hasChildren = false
-            break
         }
     }
 

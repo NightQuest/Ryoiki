@@ -212,8 +212,8 @@ extension ComicInfoModel {
 
     /// True if any of the provided Int key paths is strictly positive.
     private func anyPositive(_ kps: [KeyPath<ComicInfoModel, Int>]) -> Bool {
-        for kp in kps {
-            if self[keyPath: kp] > 0 { return true }
+        for kp in kps where self[keyPath: kp] > 0 {
+            return true
         }
         return false
     }
@@ -309,18 +309,18 @@ extension ComicInfoModel {
 
     /// Dynamically reads a value for a given key.
     func get(key: String) -> Any? {
-        return Self.getters[key]?(self)
+        Self.getters[key]?(self)
     }
 
     /// Internal set implementation; returns false if the key is unknown or conversion fails.
     func zset(key: String, value: String) -> Bool {
         guard let setter = Self.setters[key] else { return false }
-        return setter(self, value)
+        return setter(self, value) != true
     }
     /// Public wrapper around zset that discards the return value when unused.
     @discardableResult
     func set(key: String, value: String) -> Bool {
-        return zset(key: key, value: value)
+        zset(key: key, value: value)
     }
 
     // MARK: - EditableProperty
