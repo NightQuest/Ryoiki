@@ -64,8 +64,6 @@ final class FileViewModel: ObservableObject {
 
         fileSize = computeFileSize(for: url)
 
-        // NOTE: Per Option C, all read utilities (e.g., FileUtilities.computeFileDigests) must manage their own security-scoped access.
-
         let task = Task {
             try? FileUtilities.computeFileDigests(url: url)
         }

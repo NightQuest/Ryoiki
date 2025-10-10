@@ -79,7 +79,6 @@ struct FileView: View {
     }
 
     private func initialize(from url: URL?) {
-        print("[FileView] initialize(from:) -> \(String(describing: url))")
         // Reset basics
         viewModel.pageCount = viewModel.computePageCount(for: url)
         viewModel.fileSize = viewModel.computeFileSize(for: url)
@@ -94,29 +93,15 @@ struct FileView: View {
         }
 
         guard beginSecurityScope(for: url) else {
-            print("[FileView] beginSecurityScope failed for: \(url.path)")
             onOpenFailed?(url)
             return
-        }
-
-        // Diagnostics: verify readability and scope
-        do {
-            let values = try url.resourceValues(forKeys: [.isReadableKey, .fileSizeKey])
-            let readable = values.isReadable ?? false
-            let size = values.fileSize ?? -1
-            let fmReadable = FileManager.default.isReadableFile(atPath: url.path)
-            print("[FileView] Scope acquired: true, readable: \(readable), fmReadable: \(fmReadable), size: \(size), path: \(url.path)")
-        } catch {
-            print("[FileView] Failed to fetch resource values for: \(url.path). Error: \(error)")
         }
 
         // Sanity check: ensure the archive can be opened
         do {
             _ = try Archive(url: url, accessMode: .read)
-            print("Archive open sanity check: OK for \(url.lastPathComponent)")
             onOpenSucceeded?(url)
         } catch {
-            print("Archive open sanity check failed for \(url.lastPathComponent): \(error)")
             onOpenFailed?(url)
             return
         }
@@ -228,7 +213,6 @@ struct FileView: View {
             .padding()
         }
         .onAppear {
-            print("[FileView] onAppear fired")
             // Initialize editable model and derived values when the view appears.
             if let model = comicInfoData {
                 comicInfoEdited.overwrite(from: model)
@@ -238,11 +222,9 @@ struct FileView: View {
             viewModel.pageCount = viewModel.computePageCount(for: fileURL)
             viewModel.fileSize = viewModel.computeFileSize(for: fileURL)
 
-            print("[FileView] onAppear incoming fileURL: \(String(describing: fileURL))")
             initialize(from: fileURL)
         }
         .onChange(of: fileURL) { _, newValue in
-            print("[FileView] onChange(fileURL) -> \(String(describing: newValue))")
             initialize(from: newValue)
         }
         .onChange(of: comicInfoData.map { ObjectIdentifier($0) }) { _, _ in

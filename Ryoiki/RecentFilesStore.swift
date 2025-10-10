@@ -110,35 +110,9 @@ final class RecentFilesStore: ObservableObject {
                     }
                 }
                 if didRefreshAny { save() }
-                print("Recent Files: Loaded \(items.count) items")
             } catch {
-                // Attempt migration from legacy format that stored a plain URL
-                print("Recent Files: Attempting migration from legacy format due to error: \(error)")
-                struct LegacyItem: Identifiable, Codable, Equatable {
-                    let id: UUID
-                    let url: URL?
-                    var lastOpened: Date
-                    let title: String?
-                }
-                if let legacy = try? JSONDecoder().decode([LegacyItem].self, from: data) {
-                    let migrated: [Item] = legacy.compactMap { old in
-                        if let u = old.url {
-                            return Item(url: u, lastOpened: old.lastOpened, title: old.title, id: old.id)
-                        } else {
-                            return nil
-                        }
-                    }
-                    items = Array(migrated.sorted { $0.lastOpened > $1.lastOpened }.prefix(5))
-                    save()
-                    print("Recent Files: Migrated \(items.count) legacy items to bookmark-based storage")
-                } else {
-                    print("Recent Files: Failed to decode legacy format. Clearing incompatible stored data.")
-                    UserDefaults.standard.removeObject(forKey: recentFilesKey)
-                    items = []
-                }
             }
         } else {
-            print("Recent Files: No stored data")
         }
     }
 
@@ -148,9 +122,7 @@ final class RecentFilesStore: ObservableObject {
             let data = try JSONEncoder().encode(Array(trimmed))
             UserDefaults.standard.set(data, forKey: recentFilesKey)
             UserDefaults.standard.synchronize()
-            print("Recent Files: Saved \(trimmed.count) items")
         } catch {
-            print("Recent Files: Failed to encode with error: \(error)")
         }
     }
 
@@ -193,7 +165,6 @@ final class RecentFilesStore: ObservableObject {
                             self.items.insert(updated, at: 0)
                             self.items = Array(self.items.prefix(5))
                             self.save()
-                            print("Recent Files: Enriched title for \(std.lastPathComponent) -> \(t)")
                         }
                     }
                 }
@@ -229,7 +200,6 @@ final class RecentFilesStore: ObservableObject {
 
         items = Array(items.prefix(5))
         save()
-        print("Recent Files: Added \(std.lastPathComponent)")
 
         // If we don't have a title yet, enrich it asynchronously from ComicInfo.xml.
         if initialTitle == nil || initialTitle?.isEmpty == true {
@@ -258,7 +228,6 @@ final class RecentFilesStore: ObservableObject {
             items.insert(updated, at: 0)
             items = Array(items.prefix(5))
             save()
-            print("Recent Files: Updated URL for \(updated.fileName)")
         }
     }
 

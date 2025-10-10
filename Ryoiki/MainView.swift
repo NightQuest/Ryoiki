@@ -36,7 +36,6 @@ struct MainView: View {
             if hasFileOpened, openedFile != nil {
                 FileView(comicInfoData: $comicInfoData, fileURL: $openedFile)
                     .onOpenFailed { url in
-                        print("FileView failed to open: \(url.path)")
                         if let item = recents.items.first(where: { $0.url == url }) {
                             failedItem = item
                         } else if let item = recents.items.first(where: { $0.fileName == url.lastPathComponent }) {
@@ -192,17 +191,13 @@ struct MainView: View {
                 ) { result in
                     switch result {
                     case .success(let fileURL):
-                        print("Importer selected: \(fileURL.path)")
                         let didAccess = fileURL.startAccessingSecurityScopedResource()
-                        print("Importer scope acquired: \(didAccess)")
                         defer { if didAccess { fileURL.stopAccessingSecurityScopedResource() } }
 
                         switch importerMode {
                         case .open:
-                            print("Primary importer success; proceeding to open")
                             handleOpen(url: fileURL)
                         case .reauth:
-                            print("Reauth importer success; refreshing bookmark and reopening")
                             // Update recents with the newly authorized URL and reopen using resolved bookmark URL
                             if let item = recents.add(url: fileURL) {
                                 // Try to use the resolved bookmark URL
@@ -218,7 +213,7 @@ struct MainView: View {
                             reauthTargetURL = nil
                         }
                     case .failure:
-                        print("FAILZ")
+                        break
                     }
                 }
                 .onAppear { recents.load() }
@@ -294,7 +289,6 @@ struct MainView: View {
     }
 
     private func handleOpen(url fileURL: URL) {
-        print("Opening file at: \(fileURL.path)")
         openedFile = fileURL
         withAnimation(.easeInOut(duration: 0.2)) {
             hasFileOpened = true
