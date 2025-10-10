@@ -7,7 +7,7 @@ final class RecentFilesStore: ObservableObject {
     // MARK: Model
     struct Item: Identifiable, Codable, Equatable {
         let id: UUID
-        private let bookmarkData: Data?
+        var bookmarkData: Data?
         var lastOpened: Date
         let title: String?
         let displayFileName: String?
@@ -18,7 +18,7 @@ final class RecentFilesStore: ObservableObject {
             self.lastOpened = lastOpened
             self.title = title
             // Create security-scoped bookmark data for the URL when possible.
-            if let data = try? url.bookmarkData(options: [.securityScopeAllowOnlyReadAccess],
+            if let data = try? url.bookmarkData(options: [.withSecurityScope],
                                                 includingResourceValuesForKeys: nil,
                                                 relativeTo: nil) {
                 self.bookmarkData = data
@@ -30,27 +30,37 @@ final class RecentFilesStore: ObservableObject {
             self.displayLocation = url.deletingLastPathComponent().path
         }
 
+        init(id: UUID, bookmarkData: Data?, lastOpened: Date, title: String?, displayFileName: String?, displayLocation: String?) {
+            self.id = id
+            self.bookmarkData = bookmarkData
+            self.lastOpened = lastOpened
+            self.title = title
+            self.displayFileName = displayFileName
+            self.displayLocation = displayLocation
+        }
+
         // Resolves the URL from bookmark data if present; falls back to nil if resolution fails.
         var url: URL? {
             guard let bookmarkData else { return nil }
             var isStale = false
             if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
-                                       options: [.withSecurityScope],
+                                       options: [.withSecurityScope, .withoutUI],
                                        relativeTo: nil,
                                        bookmarkDataIsStale: &isStale) {
-                if isStale {
-                    // Attempt to refresh the bookmark if it's stale by creating a new one
-                    if ((try? resolved.bookmarkData(options: [.securityScopeAllowOnlyReadAccess],
-                                                    includingResourceValuesForKeys: nil,
-                                                    relativeTo: nil)) != nil) {
-                        // Note: Since `Item` is a value type and Codable, we do not mutate here;
-                        // the store will refresh bookmarks on `load()` when possible.
-                        return resolved
-                    }
-                }
+                // If stale, we still return the resolved URL; the store will recreate fresh bookmarks during load/normalization
                 return resolved
             }
             return nil
+        }
+
+        func resolveBookmark() -> (url: URL?, isStale: Bool) {
+            guard let bookmarkData else { return (nil, false) }
+            var isStale = false
+            let url = try? URL(resolvingBookmarkData: bookmarkData,
+                               options: [.withSecurityScope, .withoutUI],
+                               relativeTo: nil,
+                               bookmarkDataIsStale: &isStale)
+            return (url, isStale)
         }
 
         var name: String {
@@ -66,6 +76,8 @@ final class RecentFilesStore: ObservableObject {
 
     private let recentFilesKey = "RecentFiles"
 
+    // Removed resolveURL(from:) and refreshedItemIfNeeded(from:resolvedURL:isStale:)
+
     // MARK: Persistence
     func load() {
         if let data = UserDefaults.standard.data(forKey: recentFilesKey) {
@@ -73,18 +85,18 @@ final class RecentFilesStore: ObservableObject {
                 // First try to decode the new format with bookmarkData
                 let files = try JSONDecoder().decode([Item].self, from: data)
                 items = Array(files.sorted { $0.lastOpened > $1.lastOpened }.prefix(5))
-                // Normalize: ensure display fields are present by rebuilding from resolved URLs when possible
-                let normalized = items.map { item in
-                    if let u = item.url {
-                        return Item(url: u, lastOpened: item.lastOpened, title: item.title, id: item.id)
-                    } else if item.displayFileName == nil || item.displayLocation == nil {
-                        return item // cannot improve without a URL
-                    } else {
-                        return item
+                // Refresh stale bookmarks in place and persist
+                var didRefreshAny = false
+                for i in items.indices {
+                    let (resolved, isStale) = items[i].resolveBookmark()
+                    if isStale, let resolved {
+                        if let fresh = try? resolved.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
+                            items[i].bookmarkData = fresh
+                            didRefreshAny = true
+                        }
                     }
                 }
-                items = Array(normalized.prefix(5))
-                save()
+                if didRefreshAny { save() }
                 print("Recent Files: Loaded \(items.count) items")
             } catch {
                 // Attempt migration from legacy format that stored a plain URL
@@ -133,12 +145,27 @@ final class RecentFilesStore: ObservableObject {
     @discardableResult
     func add(url: URL, title: String? = nil) -> Item? {
         let std = url.standardizedFileURL
+        let stdFileName = std.lastPathComponent
+        let stdLocation = std.deletingLastPathComponent().path
 
         // Determine initial title: prefer provided title, else existing stored title.
-        let initialTitle: String? = title ?? items.first { $0.url?.standardizedFileURL == std }?.title
+        let initialTitle: String? = title ?? items.first {
+            // Prefer matching by resolved standardized URL
+            if let existingURL = $0.url?.standardizedFileURL {
+                return existingURL == std
+            }
+            // Fallback: match by stored display fields (filename + location)
+            return ($0.displayFileName == stdFileName) && ($0.displayLocation == stdLocation)
+        }?.title
 
         // Remove any existing entries that resolve to the same standardized URL
-        items.removeAll { $0.url?.standardizedFileURL == std }
+        items.removeAll { item in
+            if let existingURL = item.url?.standardizedFileURL {
+                return existingURL == std
+            }
+            // Fallback dedupe when bookmark URL is unavailable or failed to resolve
+            return (item.displayFileName == stdFileName) && (item.displayLocation == stdLocation)
+        }
 
         // Create a new item with bookmark data
         let newItem = Item(url: std, lastOpened: Date(), title: initialTitle)
@@ -157,7 +184,12 @@ final class RecentFilesStore: ObservableObject {
                     if !t.isEmpty {
                         DispatchQueue.main.async { [weak self] in
                             guard let self else { return }
-                            if let idx = self.items.firstIndex(where: { $0.url?.standardizedFileURL == std }) {
+                            if let idx = self.items.firstIndex(where: { item in
+                                if let existingURL = item.url?.standardizedFileURL {
+                                    return existingURL == std
+                                }
+                                return (item.displayFileName == stdFileName) && (item.displayLocation == stdLocation)
+                            }) {
                                 let updated = Item(url: std, lastOpened: Date(), title: t, id: self.items[idx].id)
                                 self.items.remove(at: idx)
                                 self.items.insert(updated, at: 0)
