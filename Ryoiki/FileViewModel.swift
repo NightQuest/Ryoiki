@@ -19,6 +19,9 @@ final class FileViewModel: ObservableObject {
             objectWillChange.send()
         }
     }
+    @Published var fileSize: String = "" {
+        willSet { objectWillChange.send() }
+    }
     @Published var pageCount: Int = 0 {
         willSet {
             objectWillChange.send()
@@ -30,6 +33,22 @@ final class FileViewModel: ObservableObject {
         return FileUtilities.pageCount(for: url)
     }
 
+    func computeFileSize(for url: URL?) -> String {
+        guard let url else { return "—" }
+        do {
+            let values = try url.resourceValues(forKeys: [.fileSizeKey])
+            if let bytes = values.fileSize {
+                let formatter = ByteCountFormatter()
+                formatter.allowedUnits = [.useKB, .useMB, .useGB]
+                formatter.countStyle = .file
+                return formatter.string(fromByteCount: Int64(bytes))
+            }
+        } catch {
+            // ignore and fall through
+        }
+        return "—"
+    }
+
     func copyToPasteboard(_ text: String) {
         FileUtilities.copyToPasteboard(text)
     }
@@ -38,9 +57,12 @@ final class FileViewModel: ObservableObject {
         md5Hex = ""
         sha1Hex = ""
         crc32Hex = ""
+        fileSize = ""
         guard let url else {
-            md5Hex = "—"; sha1Hex = "—"; crc32Hex = "—"; return
+            md5Hex = "—"; sha1Hex = "—"; crc32Hex = "—"; fileSize = "—"; return
         }
+
+        fileSize = computeFileSize(for: url)
 
         // NOTE: Per Option C, all read utilities (e.g., FileUtilities.computeFileDigests) must manage their own security-scoped access.
 

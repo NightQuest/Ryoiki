@@ -10,7 +10,7 @@ struct FileView: View {
     @StateObject var viewModel = FileViewModel()
     @StateObject var comicInfoEdited: ComicInfoModel = .init()
     @State private var communityRatingValue: Int = 0
-    @State private var md5CopyTrigger: Int = 0
+    @State private var statisticsCopyTrigger: Int = 0
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
@@ -82,6 +82,8 @@ struct FileView: View {
         print("[FileView] initialize(from:) -> \(String(describing: url))")
         // Reset basics
         viewModel.pageCount = viewModel.computePageCount(for: url)
+        viewModel.fileSize = viewModel.computeFileSize(for: url)
+
         guard let url else {
             // Clear when no file is selected and end scope
             viewModel.md5Hex = ""
@@ -179,32 +181,39 @@ struct FileView: View {
                             Spacer()
 
                             GroupBox("Statistics") {
-                                LabeledContent("Page Count") {
-                                    HStack(spacing: 8) {
-                                        Text("\(viewModel.pageCount)")
-                                            .monospacedDigit()
-                                            .padding(.leading)
-                                    }
-                                }
-                                DigestRow(
+                                StatisticsRow(
+                                    title: "Page Count",
+                                    value: String(viewModel.pageCount),
+                                    copyHelp: "Copy Page Count",
+                                    copyTrigger: $statisticsCopyTrigger,
+                                    copyAction: viewModel.copyToPasteboard
+                                )
+                                StatisticsRow(
+                                    title: "File Size",
+                                    value: viewModel.fileSize,
+                                    copyHelp: "Copy File Size",
+                                    copyTrigger: $statisticsCopyTrigger,
+                                    copyAction: viewModel.copyToPasteboard
+                                )
+                                StatisticsRow(
                                     title: "MD5",
                                     value: viewModel.md5Hex,
                                     copyHelp: "Copy MD5",
-                                    copyTrigger: $md5CopyTrigger,
+                                    copyTrigger: $statisticsCopyTrigger,
                                     copyAction: viewModel.copyToPasteboard
                                 )
-                                DigestRow(
+                                StatisticsRow(
                                     title: "SHA-1",
                                     value: viewModel.sha1Hex,
                                     copyHelp: "Copy SHA-1",
-                                    copyTrigger: $md5CopyTrigger,
+                                    copyTrigger: $statisticsCopyTrigger,
                                     copyAction: viewModel.copyToPasteboard
                                 )
-                                DigestRow(
+                                StatisticsRow(
                                     title: "CRC32",
                                     value: viewModel.crc32Hex,
                                     copyHelp: "Copy CRC32",
-                                    copyTrigger: $md5CopyTrigger,
+                                    copyTrigger: $statisticsCopyTrigger,
                                     copyAction: viewModel.copyToPasteboard
                                 )
                             }
@@ -235,6 +244,7 @@ struct FileView: View {
                 comicInfoEdited.overwrite(from: ComicInfoModel())
             }
             viewModel.pageCount = viewModel.computePageCount(for: fileURL)
+            viewModel.fileSize = viewModel.computeFileSize(for: fileURL)
 
             print("[FileView] onAppear incoming fileURL: \(String(describing: fileURL))")
             initialize(from: fileURL)

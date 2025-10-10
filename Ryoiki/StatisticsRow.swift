@@ -1,10 +1,10 @@
 import SwiftUI
 
-// MARK: - DigestRow
+// MARK: - StatisticsRow
 /// Reusable row that shows a monospaced digest value with a copy-to-clipboard button.
 /// It mirrors the original layout and behaviors (font, selection, truncation, disabled state,
 /// bounce symbol effect, and sensory feedback) to maintain visuals and functionality.
-struct DigestRow: View {
+struct StatisticsRow: View {
     let title: String
     let value: String
     let copyHelp: String
@@ -12,13 +12,21 @@ struct DigestRow: View {
     let copyAction: (String) -> Void
 
     var body: some View {
-        LabeledContent(title) {
+        HStack(spacing: 12) {
+            // Left: title takes only needed space
+            Text(title)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            // Right: value + copy button take remaining width, right-aligned
             HStack(spacing: 8) {
                 Text(value.isEmpty ? "Calculating…" : value)
                     .font(.system(.body, design: .monospaced))
                     .textSelection(.enabled)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .truncationMode(.middle)
+
                 Button {
                     guard !(value.isEmpty || value == "—") else { return }
                     copyAction(value)
@@ -33,7 +41,8 @@ struct DigestRow: View {
                 .disabled(value.isEmpty || value == "—")
                 .sensoryFeedback(.success, trigger: copyTrigger)
             }
-            .padding(.leading)
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .padding(.vertical, 2)
     }
 }
