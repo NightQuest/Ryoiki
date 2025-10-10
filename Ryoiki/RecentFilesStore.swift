@@ -18,7 +18,11 @@ final class RecentFilesStore: ObservableObject {
             self.lastOpened = lastOpened
             self.title = title
             // Create security-scoped bookmark data for the URL when possible.
+#if os(macOS)
             let options: URL.BookmarkCreationOptions = [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+#else
+            let options: URL.BookmarkCreationOptions = []
+#endif
             if let data = try? url.bookmarkData(options: options,
                                                 includingResourceValuesForKeys: nil,
                                                 relativeTo: nil) {
@@ -44,7 +48,11 @@ final class RecentFilesStore: ObservableObject {
         var url: URL? {
             guard let bookmarkData else { return nil }
             var isStale = false
+#if os(macOS)
             let options: URL.BookmarkResolutionOptions = [.withSecurityScope, .withoutUI]
+#else
+            let options: URL.BookmarkResolutionOptions = [.withoutUI]
+#endif
             if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
                                        options: options,
                                        relativeTo: nil,
@@ -57,7 +65,12 @@ final class RecentFilesStore: ObservableObject {
         func resolveBookmark() -> (url: URL?, isStale: Bool) {
             guard let bookmarkData else { return (nil, false) }
             var isStale = false
+
+#if os(macOS)
             let options: URL.BookmarkResolutionOptions = [.withSecurityScope, .withoutUI]
+#else
+            let options: URL.BookmarkResolutionOptions = [.withoutUI]
+#endif
             let url = try? URL(resolvingBookmarkData: bookmarkData,
                                options: options,
                                relativeTo: nil,
@@ -100,7 +113,11 @@ final class RecentFilesStore: ObservableObject {
                 for i in items.indices {
                     let (resolved, isStale) = items[i].resolveBookmark()
                     if isStale, let resolved {
+#if os(macOS)
                         let creationOptions: URL.BookmarkCreationOptions = [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+#else
+                        let creationOptions: URL.BookmarkCreationOptions = []
+#endif
                         if let fresh = try? resolved.bookmarkData(options: creationOptions,
                                                                   includingResourceValuesForKeys: nil,
                                                                   relativeTo: nil) {
@@ -127,7 +144,11 @@ final class RecentFilesStore: ObservableObject {
     }
 
     private func creationOptionsForBookmark() -> URL.BookmarkCreationOptions {
+#if os(macOS)
         [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+#else
+        []
+#endif
     }
 
     private func indexMatching(url std: URL, stdFileName: String, stdLocation: String) -> Int? {

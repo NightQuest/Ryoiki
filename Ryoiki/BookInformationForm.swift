@@ -279,7 +279,9 @@ struct BookInformationForm: View {
                                 } label: {
                                     Label("Add", systemImage: "plus")
                                 }
+#if os(macOS)
                                 .menuStyle(.borderedButton)
+#endif
                                 .accessibilityLabel("Add Property Type")
                                 .help("Add Property Type")
                             }
