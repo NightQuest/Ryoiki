@@ -31,6 +31,88 @@ class ComicInfoXML: XMLParser {
         super.init(data: data)
         self.delegate = self
     }
+
+    // MARK: - Helpers to reduce complexity
+    private func handleStart(of elementName: String, attributes: [String: String]) {
+        switch elementName {
+        case "ComicInfo":
+            parsingComicInfo = true
+            hasChildren = true
+        case "Pages":
+            parsingPages = true
+            hasChildren = true
+            parsedPages.removeAll(keepingCapacity: false)
+        case "Page":
+            if parsingPages { currentPageAttributes = attributes }
+            hasChildren = false
+        default:
+            hasChildren = false
+        }
+    }
+
+    private func finalizeContainerIfNeeded(for elementName: String) {
+        switch elementName {
+        case "ComicInfo":
+            parsingComicInfo = false
+        case "Pages":
+            parsingPages = false
+            if !parsedPages.isEmpty { parsed.Pages = parsedPages }
+        default:
+            break
+        }
+    }
+
+    private func makePage(from attributes: [String: String]) -> ComicPageInfo {
+        var page = ComicPageInfo()
+
+        if let image = attributes["Image"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            page.Image = image
+        }
+        if let pageTypeStr = attributes["Type"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            if let mapped = ComicPageType(rawValue: pageTypeStr) {
+                page.PageType = mapped
+            } else if let mapped = ComicPageType.allCases.first(where: { $0.rawValue.caseInsensitiveCompare(pageTypeStr) == .orderedSame }) {
+                page.PageType = mapped
+            }
+        }
+        if let doublePageStr = attributes["DoublePage"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            page.DoublePage = (doublePageStr as NSString).boolValue
+        }
+        if let imageSizeStr = attributes["ImageSize"]?.trimmingCharacters(in: .whitespacesAndNewlines), let size = Int64(imageSizeStr) {
+            page.ImageSize = size
+        }
+        if let key = attributes["Key"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            page.Key = key
+        }
+        if let bookmark = attributes["Bookmark"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            page.Bookmark = bookmark
+        }
+        if let widthStr = attributes["ImageWidth"]?.trimmingCharacters(in: .whitespacesAndNewlines), let w = Int(widthStr) {
+            page.ImageWidth = w
+        }
+        if let heightStr = attributes["ImageHeight"]?.trimmingCharacters(in: .whitespacesAndNewlines), let h = Int(heightStr) {
+            page.ImageHeight = h
+        }
+
+        return page
+    }
+
+    private func assignContentIfNeeded(_ content: String, for elementName: String) {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && elementName != "ComicInfo" && elementName != "Pages" && elementName != "Page" {
+            _ = parsed.set(key: elementName, value: trimmed)
+        }
+    }
+
+    private func syncElementStack(onEnd elementName: String) {
+        if let last = elementStack.last, last == elementName {
+            elementStack.removeLast()
+        } else {
+            elementStack.removeAll(keepingCapacity: false)
+        }
+        prevElement = elementName
+        currentElement = elementStack.last ?? ""
+    }
 }
 
 extension ComicInfoXML: XMLParserDelegate {
@@ -46,23 +128,7 @@ extension ComicInfoXML: XMLParserDelegate {
         currentElement = elementName
         elementStack.append(elementName)
 
-        switch elementName {
-        case "ComicInfo":
-            parsingComicInfo = true
-            hasChildren = true
-        case "Pages":
-            parsingPages = true
-            hasChildren = true
-            parsedPages.removeAll(keepingCapacity: false)
-        case "Page":
-            if parsingPages {
-                // capture attributes for this page
-                currentPageAttributes = attributeDict
-            }
-            hasChildren = false
-        default:
-            hasChildren = false
-        }
+        handleStart(of: elementName, attributes: attributeDict)
     }
 
     // Called when a character sequence is found
@@ -81,78 +147,20 @@ extension ComicInfoXML: XMLParserDelegate {
                 namespaceURI: String?,
                 qualifiedName qName: String?) {
         // Handle container/structural elements first
-        switch elementName {
-        case "ComicInfo":
-            parsingComicInfo = false
+        finalizeContainerIfNeeded(for: elementName)
 
-        case "Pages":
-            parsingPages = false
-            if !parsedPages.isEmpty {
-                parsed.Pages = parsedPages
-            }
-
-        case "Page":
-            if parsingPages {
-                var page = ComicPageInfo()
-
-                if let image = currentPageAttributes["Image"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    page.Image = image
-                }
-                if let pageTypeStr = currentPageAttributes["Type"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    if let mapped = ComicPageType(rawValue: pageTypeStr) {
-                        page.PageType = mapped
-                    } else if let mapped = ComicPageType.allCases.first(where: { $0.rawValue.caseInsensitiveCompare(pageTypeStr) == .orderedSame }) {
-                        page.PageType = mapped
-                    }
-                }
-                if let doublePageStr = currentPageAttributes["DoublePage"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    page.DoublePage = (doublePageStr as NSString).boolValue
-                }
-                if let imageSizeStr = currentPageAttributes["ImageSize"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   let size = Int64(imageSizeStr) {
-                    page.ImageSize = size
-                }
-                if let key = currentPageAttributes["Key"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    page.Key = key
-                }
-                if let bookmark = currentPageAttributes["Bookmark"]?.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    page.Bookmark = bookmark
-                }
-                if let widthStr = currentPageAttributes["ImageWidth"]?.trimmingCharacters(in: .whitespacesAndNewlines), let w = Int(widthStr) {
-                    page.ImageWidth = w
-                }
-                if let heightStr = currentPageAttributes["ImageHeight"]?.trimmingCharacters(in: .whitespacesAndNewlines), let h = Int(heightStr) {
-                    page.ImageHeight = h
-                }
-
-                parsedPages.append(page)
-                currentPageAttributes.removeAll(keepingCapacity: false)
-            }
-
-        default:
-            break
+        if elementName == "Page" && parsingPages {
+            let page = makePage(from: currentPageAttributes)
+            parsedPages.append(page)
+            currentPageAttributes.removeAll(keepingCapacity: false)
         }
 
-        // Assign simple text content to model keys for non-container elements
         if parsingComicInfo && !parsingPages {
-            let trimmed = currentContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty && elementName != "ComicInfo" && elementName != "Pages" && elementName != "Page" {
-                _ = parsed.set(key: elementName, value: trimmed)
-            }
+            assignContentIfNeeded(currentContent, for: elementName)
         }
 
-        // Reset current content buffer for the next element
         currentContent = ""
-
-        // Maintain an element stack to correctly track nesting
-        if let last = elementStack.last, last == elementName {
-            elementStack.removeLast()
-        } else {
-            // If the stack got out of sync, clear it to avoid cascading errors
-            elementStack.removeAll(keepingCapacity: false)
-        }
-        prevElement = elementName
-        currentElement = elementStack.last ?? ""
+        syncElementStack(onEnd: elementName)
     }
 
     // Called when a CDATA block is found

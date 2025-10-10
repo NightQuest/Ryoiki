@@ -184,45 +184,53 @@ struct BookInformationForm: View {
             .labelsHidden()
         }
 
+        private var editors: [ComicInfoModel.EditableProperty: AnyView] {
+            [
+                .Title: AnyView(textFieldEditor(text: $comicInfo.Title)),
+                .Series: AnyView(textFieldEditor(text: $comicInfo.Series)),
+                .Number: AnyView(textFieldEditor(text: $comicInfo.Number)),
+                .Count: AnyView(numberFieldEditor(value: $comicInfo.Count)),
+                .Volume: AnyView(numberFieldEditor(value: $comicInfo.Volume)),
+                .AlternateSeries: AnyView(textFieldEditor(text: $comicInfo.AlternateSeries)),
+                .AlternateNumber: AnyView(textFieldEditor(text: $comicInfo.AlternateNumber)),
+                .AlternateCount: AnyView(numberFieldEditor(value: $comicInfo.AlternateCount)),
+                .Summary: AnyView(multilineEditor(text: $comicInfo.Summary)),
+                .Notes: AnyView(multilineEditor(text: $comicInfo.Notes)),
+                .Writer: AnyView(textFieldEditor(text: $comicInfo.Writer)),
+                .Penciller: AnyView(textFieldEditor(text: $comicInfo.Penciller)),
+                .Inker: AnyView(textFieldEditor(text: $comicInfo.Inker)),
+                .Colorist: AnyView(textFieldEditor(text: $comicInfo.Colorist)),
+                .Letterer: AnyView(textFieldEditor(text: $comicInfo.Letterer)),
+                .CoverArtist: AnyView(textFieldEditor(text: $comicInfo.CoverArtist)),
+                .Editor: AnyView(textFieldEditor(text: $comicInfo.Editor)),
+                .Publisher: AnyView(textFieldEditor(text: $comicInfo.Publisher)),
+                .Imprint: AnyView(textFieldEditor(text: $comicInfo.Imprint)),
+                .Genre: AnyView(textFieldEditor(text: $comicInfo.Genre)),
+                .Web: AnyView(textFieldEditor(text: $comicInfo.Web)),
+                .LanguageISO: AnyView(languagePicker),
+                .Format: AnyView(textFieldEditor(text: $comicInfo.Format)),
+                .BlackAndWhite: AnyView(yesNoPicker),
+                .Manga: AnyView(mangaPicker),
+                .Characters: AnyView(textFieldEditor(text: $comicInfo.Characters)),
+                .Teams: AnyView(textFieldEditor(text: $comicInfo.Teams)),
+                .Locations: AnyView(textFieldEditor(text: $comicInfo.Locations)),
+                .ScanInformation: AnyView(textFieldEditor(text: $comicInfo.ScanInformation)),
+                .StoryArc: AnyView(textFieldEditor(text: $comicInfo.StoryArc)),
+                .SeriesGroup: AnyView(textFieldEditor(text: $comicInfo.SeriesGroup)),
+                .AgeRating: AnyView(ageRatingPicker),
+                .CommunityRating: AnyView(communityRatingEditor),
+                .MainCharacterOrTeam: AnyView(textFieldEditor(text: $comicInfo.MainCharacterOrTeam)),
+                .Review: AnyView(multilineEditor(text: $comicInfo.Review)),
+                .PublishDate: AnyView(publishDatePicker)
+            ]
+        }
+
         @ViewBuilder
         var body: some View {
-            switch property {
-            case .Title: textFieldEditor(text: $comicInfo.Title)
-            case .Series: textFieldEditor(text: $comicInfo.Series)
-            case .Number: textFieldEditor(text: $comicInfo.Number)
-            case .Count: numberFieldEditor(value: $comicInfo.Count)
-            case .Volume: numberFieldEditor(value: $comicInfo.Volume)
-            case .AlternateSeries: textFieldEditor(text: $comicInfo.AlternateSeries)
-            case .AlternateNumber: textFieldEditor(text: $comicInfo.AlternateNumber)
-            case .AlternateCount: numberFieldEditor(value: $comicInfo.AlternateCount)
-            case .Summary: multilineEditor(text: $comicInfo.Summary)
-            case .Notes: multilineEditor(text: $comicInfo.Notes)
-            case .Writer: textFieldEditor(text: $comicInfo.Writer)
-            case .Penciller: textFieldEditor(text: $comicInfo.Penciller)
-            case .Inker: textFieldEditor(text: $comicInfo.Inker)
-            case .Colorist: textFieldEditor(text: $comicInfo.Colorist)
-            case .Letterer: textFieldEditor(text: $comicInfo.Letterer)
-            case .CoverArtist: textFieldEditor(text: $comicInfo.CoverArtist)
-            case .Editor: textFieldEditor(text: $comicInfo.Editor)
-            case .Publisher: textFieldEditor(text: $comicInfo.Publisher)
-            case .Imprint: textFieldEditor(text: $comicInfo.Imprint)
-            case .Genre: textFieldEditor(text: $comicInfo.Genre)
-            case .Web: textFieldEditor(text: $comicInfo.Web)
-            case .LanguageISO: languagePicker
-            case .Format: textFieldEditor(text: $comicInfo.Format)
-            case .BlackAndWhite: yesNoPicker
-            case .Manga: mangaPicker
-            case .Characters: textFieldEditor(text: $comicInfo.Characters)
-            case .Teams: textFieldEditor(text: $comicInfo.Teams)
-            case .Locations: textFieldEditor(text: $comicInfo.Locations)
-            case .ScanInformation: textFieldEditor(text: $comicInfo.ScanInformation)
-            case .StoryArc: textFieldEditor(text: $comicInfo.StoryArc)
-            case .SeriesGroup: textFieldEditor(text: $comicInfo.SeriesGroup)
-            case .AgeRating: ageRatingPicker
-            case .CommunityRating: communityRatingEditor
-            case .MainCharacterOrTeam: textFieldEditor(text: $comicInfo.MainCharacterOrTeam)
-            case .Review: multilineEditor(text: $comicInfo.Review)
-            case .PublishDate: publishDatePicker
+            if let view = editors[property] {
+                view
+            } else {
+                EmptyView()
             }
         }
     }

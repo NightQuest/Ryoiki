@@ -2,6 +2,12 @@ import Foundation
 import ImageIO
 import SwiftUI
 
+struct ImageMetrics: Equatable {
+    var width: Int
+    var height: Int
+    var size: Int64
+}
+
 /// Provides computed details about a page image, centralizing logic to read from ComicArchive and XML metadata.
 struct PageDetailProvider {
     let fileURL: URL
@@ -41,53 +47,64 @@ struct PageDetailProvider {
         }
     }
 
-    /// Returns a tuple of (width, height, size) for the given zero-based index, preferring metadata but falling back to source.
-    func imageMetrics(atZeroBased index: Int) -> (width: Int, height: Int, size: Int64)? {
-        guard totalPages() > 0 else { return nil }
-
-        var width: Int = 0
-        var height: Int = 0
-        var size: Int64 = 0
-
+    private func initialMetrics(from pages: [ComicPageInfo]?, at index: Int) -> ImageMetrics {
+        var w = 0, h = 0
+        var s: Int64 = 0
         if let pgs = pages, !pgs.isEmpty, index < pgs.count {
             let p = pgs[index]
-            width = p.ImageWidth
-            height = p.ImageHeight
-            size = p.ImageSize
+            w = p.ImageWidth
+            h = p.ImageHeight
+            s = p.ImageSize
         }
+        return ImageMetrics(width: w, height: h, size: s)
+    }
+
+    private func readArchiveMetrics(_ archive: ComicArchive, paths: [String], pageNumber: Int, metrics: inout ImageMetrics) {
+        guard pageNumber > 0, pageNumber <= paths.count else { return }
+        let path = paths[pageNumber - 1]
+        var m = metrics
+        if let data = archive.data(atEntryPath: path) {
+            if m.size <= 0 { m.size = Int64(data.count) }
+            if m.width <= 0 || m.height <= 0 {
+                if let src = CGImageSourceCreateWithData(data as CFData, nil),
+                   let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+                    if m.width <= 0 { m.width = cg.width }
+                    if m.height <= 0 { m.height = cg.height }
+                }
+            }
+        }
+        metrics = m
+    }
+
+    /// Returns a tuple of (width, height, size) for the given zero-based index, preferring metadata but falling back to source.
+    func imageMetrics(atZeroBased index: Int) -> ImageMetrics? {
+        guard totalPages() > 0 else { return nil }
+
+        let initial = initialMetrics(from: pages, at: index)
+        var width = initial.width
+        var height = initial.height
+        var size = initial.size
 
         if width > 0, height > 0, size > 0 {
-            return (width, height, size)
+            return ImageMetrics(width: width, height: height, size: size)
         }
 
-        // Fallback to reading from the archive
         let archive = ComicArchive(fileURL: fileURL)
         let paths = archive.imageEntryPaths()
         let clampedIndex = min(max(0, index), max(0, paths.count - 1))
 
-        // Determine 1-based page number from metadata when possible
         var pageNumber = clampedIndex + 1
-        if let pgs = pages, !pgs.isEmpty, clampedIndex < pgs.count {
-            let p = pgs[clampedIndex]
-            if let imgIdx = Int(p.Image) { pageNumber = imgIdx + 1 }
+        if let pgs = pages, !pgs.isEmpty, clampedIndex < pgs.count,
+           let imgIdx = Int(pgs[clampedIndex].Image) {
+            pageNumber = imgIdx + 1
         }
 
-        if pageNumber > 0, pageNumber <= paths.count {
-            let path = paths[pageNumber - 1]
-            if let data = archive.data(atEntryPath: path) {
-                if size <= 0 { size = Int64(data.count) }
-                if width <= 0 || height <= 0 {
-                    if let src = CGImageSourceCreateWithData(data as CFData, nil),
-                       let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) {
-                        if width <= 0 { width = cg.width }
-                        if height <= 0 { height = cg.height }
-                    }
-                }
-            }
-        }
+        var m = ImageMetrics(width: width, height: height, size: size)
+        readArchiveMetrics(archive, paths: paths, pageNumber: pageNumber, metrics: &m)
+        width = m.width; height = m.height; size = m.size
 
         if width > 0 || height > 0 || size > 0 {
-            return (width, height, size)
+            return ImageMetrics(width: width, height: height, size: size)
         }
         return nil
     }

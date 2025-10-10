@@ -8,6 +8,13 @@ import AppKit
 import UIKit
 #endif
 
+// Digest container to avoid large tuple warnings
+struct FileDigests: Codable, Equatable {
+    let md5: String
+    let sha1: String
+    let crc32: String
+}
+
 // MARK: - FileUtilities
 /// Cross-platform helpers for file inspection, hashing, and pasteboard.
 enum FileUtilities {
@@ -39,7 +46,7 @@ enum FileUtilities {
     }
 
     /// Streams a file and computes MD5, SHA-1, and CRC32 digests efficiently.
-    static func computeFileDigests(url: URL) throws -> (md5: String, sha1: String, crc32: String) {
+    static func computeFileDigests(url: URL) throws -> FileDigests {
         let chunkSize = 1_048_576 // 1 MB
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -62,6 +69,6 @@ enum FileUtilities {
         let md5Hex = md5.finalize().map { String(format: "%02x", $0) }.joined()
         let sha1Hex = sha1.finalize().map { String(format: "%02x", $0) }.joined()
         let crc32Hex = String(format: "%08x", UInt32(crc))
-        return (md5Hex, sha1Hex, crc32Hex)
+        return FileDigests(md5: md5Hex, sha1: sha1Hex, crc32: crc32Hex)
     }
 }

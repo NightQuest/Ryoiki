@@ -44,6 +44,40 @@ struct FileView: View {
         }
     }
 
+    private func prepareEditableModel(from url: URL?) {
+        if comicInfoData == nil {
+            if let url, let info = ComicArchive(fileURL: url).getComicInfoData(), info.parse() {
+                comicInfoEdited.overwrite(from: info.parsed)
+                communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
+            }
+        } else if let model = comicInfoData {
+            comicInfoEdited.overwrite(from: model)
+            communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
+        }
+    }
+
+    private func ensurePagesCoverAllImages(from url: URL) {
+        let archive = ComicArchive(fileURL: url)
+        let total = archive.pageCount()
+        guard total > 0 else { return }
+
+        var finalPages = Array(repeating: ComicPageInfo(), count: total)
+        if let existing = comicInfoEdited.Pages, !existing.isEmpty {
+            let hasExplicitIndices = existing.contains { Int($0.Image) != nil }
+            if hasExplicitIndices {
+                for p in existing {
+                    if let idx = Int(p.Image), idx >= 0, idx < total { finalPages[idx] = p }
+                }
+            } else {
+                for (i, p) in existing.enumerated() where i < total { finalPages[i] = p }
+            }
+        } else {
+            for i in 0..<total { finalPages[i].Image = String(i) }
+        }
+        comicInfoEdited.Pages = finalPages
+        comicInfoEdited.PageCount = total
+    }
+
     private func initialize(from url: URL?) {
         print("[FileView] initialize(from:) -> \(String(describing: url))")
         // Reset basics
@@ -93,41 +127,11 @@ struct FileView: View {
             return
         }
 
-        // Parse ComicInfo.xml if needed
-        if comicInfoData == nil {
-            if let info = ComicArchive(fileURL: url).getComicInfoData(), info.parse() {
-                comicInfoEdited.overwrite(from: info.parsed)
-                communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
-            }
-        } else if let model = comicInfoData {
-            comicInfoEdited.overwrite(from: model)
-            communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
-        }
+        // Parse ComicInfo.xml or use provided model
+        prepareEditableModel(from: url)
 
         // Ensure Pages covers all images in the archive
-        let archive = ComicArchive(fileURL: url)
-        let total = archive.pageCount()
-        if total > 0 {
-            var finalPages = Array(repeating: ComicPageInfo(), count: total)
-            if let existing = comicInfoEdited.Pages, !existing.isEmpty {
-                let hasExplicitIndices = existing.contains { Int($0.Image) != nil }
-                if hasExplicitIndices {
-                    for p in existing {
-                        if let idx = Int(p.Image), idx >= 0, idx < total {
-                            finalPages[idx] = p
-                        }
-                    }
-                } else {
-                    for (i, p) in existing.enumerated() where i < total {
-                        finalPages[i] = p
-                    }
-                }
-            } else {
-                for i in 0..<total { finalPages[i].Image = String(i) }
-            }
-            comicInfoEdited.Pages = finalPages
-            comicInfoEdited.PageCount = total
-        }
+        ensurePagesCoverAllImages(from: url)
 
         // Defer hash computation slightly to avoid hitching
         Task { @MainActor in
