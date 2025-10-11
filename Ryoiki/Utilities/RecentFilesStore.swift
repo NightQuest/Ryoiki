@@ -1,9 +1,7 @@
 import Foundation
-import UniformTypeIdentifiers
-import Combine
 
 // MARK: - RecentFilesStore
-final class RecentFilesStore: ObservableObject {
+final class RecentFilesStore {
     // MARK: Model
     struct Item: Identifiable, Codable, Equatable {
         let id: UUID
@@ -95,7 +93,7 @@ final class RecentFilesStore: ObservableObject {
         }
     }
 
-    @Published private(set) var items: [Item] = []
+    private(set) var items: [Item] = []
 
     private let recentFilesKey = "RecentFiles"
 
