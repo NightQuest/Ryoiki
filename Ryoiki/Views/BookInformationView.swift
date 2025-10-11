@@ -68,7 +68,7 @@ struct BookInformationView: View {
 
     private var mangaPicker: some View {
         Picker("", selection: $comicInfo.Manga) {
-            ForEach(Manga.allCases) { option in
+            ForEach(ComicManga.allCases) { option in
                 Text("\(option.rawValue)").tag(option)
             }
         }
@@ -78,7 +78,7 @@ struct BookInformationView: View {
 
     private var ageRatingPicker: some View {
         Picker("", selection: $comicInfo.AgeRating) {
-            ForEach(AgeRating.allCases, id: \.self) { rating in
+            ForEach(ComicAgeRating.allCases, id: \.self) { rating in
                 Text(rating.rawValue).tag(rating)
             }
         }
@@ -149,7 +149,7 @@ struct BookInformationView: View {
         @ViewBuilder
         private var mangaPicker: some View {
             Picker("", selection: $comicInfo.Manga) {
-                ForEach(Manga.allCases) { option in
+                ForEach(ComicManga.allCases) { option in
                     Text("\(option.rawValue)").tag(option)
                 }
             }
@@ -160,7 +160,7 @@ struct BookInformationView: View {
         @ViewBuilder
         private var ageRatingPicker: some View {
             Picker("", selection: $comicInfo.AgeRating) {
-                ForEach(AgeRating.allCases, id: \.self) { rating in
+                ForEach(ComicAgeRating.allCases, id: \.self) { rating in
                     Text(rating.rawValue).tag(rating)
                 }
             }

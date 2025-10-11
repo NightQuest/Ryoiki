@@ -30,7 +30,7 @@ internal enum YesNo: String, RawRepresentable, CaseIterable, Identifiable {
 }
 
 /// Indicates whether content is manga and, if applicable, its reading direction.
-internal enum Manga: String, RawRepresentable, CaseIterable, Identifiable, Hashable, Equatable {
+internal enum ComicManga: String, RawRepresentable, CaseIterable, Identifiable, Hashable, Equatable {
     /// Content type unknown
     case Unknown
     /// Content is manga (standard reading direction)
@@ -76,7 +76,7 @@ internal struct Rating: RawRepresentable, ExpressibleByIntegerLiteral {
 }
 
 /// Standardized age ratings for content.
-internal enum AgeRating: String, CaseIterable {
+internal enum ComicAgeRating: String, CaseIterable {
     /// Unknown rating
     case Unknown = "Unknown"
     /// Adults Only 18+
@@ -190,14 +190,14 @@ final class ComicInfoModel: ObservableObject, Identifiable {
     @Published var LanguageISO: String = ""
     @Published var Format: String = ""
     @Published var BlackAndWhite: YesNo = .Unknown
-    @Published var Manga: Manga = .Unknown
+    @Published var Manga: ComicManga = .Unknown
     @Published var Characters: String = ""
     @Published var Teams: String = ""
     @Published var Locations: String = ""
     @Published var ScanInformation: String = ""
     @Published var StoryArc: String = ""
     @Published var SeriesGroup: String = ""
-    @Published var AgeRating: AgeRating = .Unknown
+    @Published var AgeRating: ComicAgeRating = .Unknown
     @Published var Pages: [ComicPageInfo]?
     @Published var CommunityRating: Rating?
 
@@ -320,12 +320,12 @@ extension ComicInfoModel {
                 return true
             },
             "Manga": { raw in
-                guard let v = Ryoiki.Manga(rawValue: raw) else { return false }
+                guard let v = ComicManga(rawValue: raw) else { return false }
                 self.Manga = v
                 return true
             },
             "AgeRating": { raw in
-                guard let v = Ryoiki.AgeRating(rawValue: raw) else { return false }
+                guard let v = ComicAgeRating(rawValue: raw) else { return false }
                 self.AgeRating = v
                 return true
             }
