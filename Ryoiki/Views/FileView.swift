@@ -98,7 +98,7 @@ struct FileView: View {
                         .frame(width: 260, alignment: .top)
                     } detail: {
                         TabView {
-                            BookInformationForm(
+                            BookInformationView(
                                 comicInfo: viewModel.editableComicInfo
                             )
                             .tabItem { Label("Info", systemImage: "info.circle") }

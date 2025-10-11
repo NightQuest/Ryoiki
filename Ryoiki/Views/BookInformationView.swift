@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Form for editing ComicInfo metadata. Fields are dynamically chosen based on selected properties.
-struct BookInformationForm: View {
+struct BookInformationView: View {
     @ObservedObject var comicInfo: ComicInfoModel
 
     @State private var selectedProperties: [ComicInfoModel.EditableProperty] = []

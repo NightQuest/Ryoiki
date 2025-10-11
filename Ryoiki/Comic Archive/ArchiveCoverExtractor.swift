@@ -16,10 +16,12 @@ enum ArchiveCoverExtractor {
 
     // MARK: - Helpers to reduce cyclomatic complexity
     @inline(__always)
-    private static func isImageExtension(_ ext: String, commonImageExts: Set<String>) -> Bool {
+    private static func isImageExtension(_ ext: String) -> Bool {
         let lower = ext.lowercased()
-        if commonImageExts.contains(lower) { return true }
-        return UTType(filenameExtension: lower)?.conforms(to: .image) == true
+        if let utype = UTType(filenameExtension: lower) {
+            return utype.conforms(to: .image)
+        }
+        return false
     }
 
     @inline(__always)
@@ -41,9 +43,6 @@ enum ArchiveCoverExtractor {
             let archive = try Archive(url: fileURL, accessMode: .read)
             let cacheKeyPrefix = fileURL.absoluteString + "::"
 
-            // Common image extensions cache
-            let commonImageExts: Set<String> = ["jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "heic", "heif", "webp", "jp2", "j2k"]
-
             var selectedEntry: ZIPFoundation.Entry?
             var firstImageEntry: ZIPFoundation.Entry?
 
@@ -54,14 +53,14 @@ enum ArchiveCoverExtractor {
                 // Track first image as a fallback (by extension or UTType)
                 if firstImageEntry == nil, let dot = lastComponentLower.lastIndex(of: ".") {
                     let ext = String(lastComponentLower[lastComponentLower.index(after: dot)...])
-                    if isImageExtension(ext, commonImageExts: commonImageExts) {
+                    if isImageExtension(ext) {
                         firstImageEntry = entry
                     }
                 }
 
                 // Check for zero-named rule on last component
                 guard let match = zeroNamedImageMatch(for: lastComponentLower) else { continue }
-                guard isImageExtension(match.ext, commonImageExts: commonImageExts) else { continue }
+                guard isImageExtension(match.ext) else { continue }
 
                 selectedEntry = entry
                 break

@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import ZIPFoundation
 import UniformTypeIdentifiers
 
 struct MainView: View {
