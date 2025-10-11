@@ -16,17 +16,6 @@ struct MainView: View {
     var body: some View {
         if vm.hasFileOpened, vm.openedFile != nil {
             FileView(comicInfoData: $comicInfoData, fileURL: $vm.openedFile)
-                .onOpenFailed { _ in
-                    vm.hasFileOpened = false
-                    vm.openedFile = nil
-                }
-                .onOpenSucceeded { url in
-                    if let item = vm.recents.add(url: url) {
-                        if let resolved = vm.recents.items.first(where: { $0.id == item.id })?.url {
-                            vm.recents.updateURL(for: item.id, to: resolved)
-                        }
-                    }
-                }
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: vm.hasFileOpened)
         } else {

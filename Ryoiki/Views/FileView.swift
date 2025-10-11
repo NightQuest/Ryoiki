@@ -1,7 +1,4 @@
 import SwiftUI
-import Foundation
-import ZIPFoundation
-import Combine
 
 // MARK: - FileView
 /// Primary view for inspecting a selected comic file: shows the cover, statistics, and editable metadata.
@@ -13,10 +10,6 @@ struct FileView: View {
 
     @State private var currentIndex: Int = 0
     @State private var statisticsCopyTrigger: Int = 0
-
-    // Callback to notify the parent when opening/processing fails
-    var onOpenFailed: ((URL) -> Void)?
-    var onOpenSucceeded: ((URL) -> Void)?
 
     var body: some View {
         ZStack {
@@ -129,22 +122,6 @@ struct FileView: View {
         .onDisappear {
             viewModel.close()
         }
-    }
-}
-
-extension FileView {
-    func onOpenFailed(_ action: @escaping (URL) -> Void) -> FileView {
-        var copy = self
-        copy.onOpenFailed = action
-        return copy
-    }
-}
-
-extension FileView {
-    func onOpenSucceeded(_ action: @escaping (URL) -> Void) -> FileView {
-        var copy = self
-        copy.onOpenSucceeded = action
-        return copy
     }
 }
 

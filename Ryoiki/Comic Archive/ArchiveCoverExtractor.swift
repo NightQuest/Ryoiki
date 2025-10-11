@@ -3,7 +3,6 @@ import ZIPFoundation
 import UniformTypeIdentifiers
 import ImageIO
 import SwiftUI
-import CoreGraphics
 
 // MARK: - ArchiveCoverExtractor
 /// Finds and decodes cover images and direct images, with in-memory caching and security-scoped access.

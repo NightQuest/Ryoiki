@@ -89,24 +89,6 @@ struct ComicArchive {
         }
     }
 
-    // Lists all entry paths in the archive (files and directories)
-    func allEntryPaths() -> [String] {
-        withArchive { archive in
-            Array(archive.map { $0.path })
-        } ?? []
-    }
-
-    // Lists only file entry paths (excluding directories)
-    func fileEntryPaths() -> [String] {
-        withArchive { archive in
-            var paths: [String] = []
-            for entry in archive where entry.type == .file {
-                paths.append(entry.path)
-            }
-            return paths
-        } ?? []
-    }
-
     // Lists file entry paths that appear to be images by extension
     func imageEntryPaths() -> [String] {
         withArchive { archive in
@@ -167,14 +149,6 @@ struct ComicArchive {
             guard (try? archive.extract(entry) { data.append($0) }) != nil else { return nil }
             return ComicInfoXML(data: data)
         }
-    }
-
-    // Checks whether an entry with the given path exists
-    func containsEntry(path: String) -> Bool {
-        withArchive { archive in
-            for entry in archive where entry.path == path { return true }
-            return false
-        } ?? false
     }
 
     // Reads raw Data for a specific entry path, if present
