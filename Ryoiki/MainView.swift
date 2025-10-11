@@ -341,19 +341,39 @@ private struct RecentFileRow: View {
     let onDelete: () -> Void
     let onReauthorize: () -> Void
 
+    @State private var cover: Image?
+
+    private func loadCoverIfNeeded() {
+        let baseURL: URL? = item.url ?? URL(fileURLWithPath: item.location).appendingPathComponent(item.fileName)
+        guard let u = baseURL else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let archive = ComicArchive(fileURL: u)
+            let img = archive.coverImage()
+            DispatchQueue.main.async { self.cover = img }
+        }
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             HStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(.ultraThinMaterial)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 128, height: 128)
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .strokeBorder(.white.opacity(0.15), lineWidth: 1)
                         )
-                    Image(systemName: "doc.zipper")
-                        .foregroundStyle(Color.accentColor)
+                    if let cover {
+                        cover
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 128, height: 128)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    } else {
+                        Image(systemName: "doc.zipper")
+                            .foregroundStyle(Color.accentColor)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title ?? item.name)
@@ -402,5 +422,6 @@ private struct RecentFileRow: View {
         .padding(12)
         .glassCard()
         .contentShape(Rectangle())
+        .onAppear { loadCoverIfNeeded() }
     }
 }
