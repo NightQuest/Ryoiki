@@ -77,8 +77,8 @@ final class FileViewModel: ObservableObject {
         let result = await task.value
 
         self.md5Hex = result?.md5 ?? "—"
-        self.sha1Hex = result?.sha1 ?? "-"
-        self.crc32Hex = result?.crc32 ?? "-"
+        self.sha1Hex = result?.sha1 ?? "—"
+        self.crc32Hex = result?.crc32 ?? "—"
     }
 
     func open(url: URL?, providedComicInfo: ComicInfoModel?) {
