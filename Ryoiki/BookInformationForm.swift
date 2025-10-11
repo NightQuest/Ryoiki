@@ -3,7 +3,6 @@ import SwiftUI
 /// Form for editing ComicInfo metadata. Fields are dynamically chosen based on selected properties.
 struct BookInformationForm: View {
     @ObservedObject var comicInfo: ComicInfoModel
-    @Binding var communityRatingValue: Int
 
     @State private var selectedProperties: [ComicInfoModel.EditableProperty] = []
 
@@ -88,10 +87,7 @@ struct BookInformationForm: View {
     }
 
     private var communityRatingEditor: some View {
-        StarRatingView(value: $communityRatingValue, max: 5)
-            .onChange(of: communityRatingValue) {
-                comicInfo.CommunityRating = communityRatingValue > 0 ? Rating(rawValue: communityRatingValue) : nil
-            }
+        StarRatingView(value: Binding(get: { comicInfo.communityRatingInt }, set: { comicInfo.communityRatingInt = $0 }), max: 5)
     }
 
     private var publishDatePicker: some View {
@@ -104,7 +100,6 @@ struct BookInformationForm: View {
 
     private struct PropertyEditor: View {
         @ObservedObject var comicInfo: ComicInfoModel
-        @Binding var communityRatingValue: Int
         let property: ComicInfoModel.EditableProperty
 
         @ViewBuilder
@@ -129,6 +124,7 @@ struct BookInformationForm: View {
                 .submitScope(false)
         }
 
+        @ViewBuilder
         private var languagePicker: some View {
             Picker("", selection: $comicInfo.LanguageISO) {
                 ForEach(languageOptions) { option in
@@ -139,6 +135,7 @@ struct BookInformationForm: View {
             .pickerStyle(.menu)
         }
 
+        @ViewBuilder
         private var yesNoPicker: some View {
             Picker("", selection: $comicInfo.BlackAndWhite) {
                 ForEach(YesNo.allCases) { option in
@@ -149,6 +146,7 @@ struct BookInformationForm: View {
             .pickerStyle(.menu)
         }
 
+        @ViewBuilder
         private var mangaPicker: some View {
             Picker("", selection: $comicInfo.Manga) {
                 ForEach(Manga.allCases) { option in
@@ -159,6 +157,7 @@ struct BookInformationForm: View {
             .pickerStyle(.menu)
         }
 
+        @ViewBuilder
         private var ageRatingPicker: some View {
             Picker("", selection: $comicInfo.AgeRating) {
                 ForEach(AgeRating.allCases, id: \.self) { rating in
@@ -169,13 +168,12 @@ struct BookInformationForm: View {
             .pickerStyle(.menu)
         }
 
+        @ViewBuilder
         private var communityRatingEditor: some View {
-            StarRatingView(value: $communityRatingValue, max: 5)
-                .onChange(of: communityRatingValue) {
-                    comicInfo.CommunityRating = communityRatingValue > 0 ? Rating(rawValue: communityRatingValue) : nil
-                }
+            StarRatingView(value: Binding(get: { comicInfo.communityRatingInt }, set: { comicInfo.communityRatingInt = $0 }), max: 5)
         }
 
+        @ViewBuilder
         private var publishDatePicker: some View {
             DatePicker("", selection: Binding(
                 get: { comicInfo.publishDate },
@@ -249,7 +247,7 @@ struct BookInformationForm: View {
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                             .help(prop.displayName)
-                                        PropertyEditor(comicInfo: comicInfo, communityRatingValue: $communityRatingValue, property: prop)
+                                        PropertyEditor(comicInfo: comicInfo, property: prop)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                         Button(role: .destructive) {
                                             if let idx = selectedProperties.firstIndex(of: prop) { selectedProperties.remove(at: idx) }

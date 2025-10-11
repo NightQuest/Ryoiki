@@ -200,6 +200,16 @@ final class ComicInfoModel: ObservableObject, Identifiable {
     @Published var AgeRating: AgeRating = .Unknown
     @Published var Pages: [ComicPageInfo]?
     @Published var CommunityRating: Rating?
+
+    /// Int bridge for CommunityRating to simplify view bindings (0..5; 0 means nil)
+    var communityRatingInt: Int {
+        get { CommunityRating?.rawValue ?? 0 }
+        set {
+            let clamped = max(0, min(5, newValue))
+            CommunityRating = clamped > 0 ? Rating(rawValue: clamped) : nil
+        }
+    }
+
     @Published var MainCharacterOrTeam: String = ""
     @Published var Review: String = ""
 }

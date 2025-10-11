@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import ZIPFoundation
+import Combine
 
 // MARK: - FileView
 /// Primary view for inspecting a selected comic file: shows the cover, statistics, and editable metadata.
@@ -8,116 +9,14 @@ struct FileView: View {
     @Binding var comicInfoData: ComicInfoModel?
     @Binding var fileURL: URL?
     @StateObject var viewModel = FileViewModel()
-    @StateObject var comicInfoEdited: ComicInfoModel = .init()
-    @State private var communityRatingValue: Int = 0
-    @State private var statisticsCopyTrigger: Int = 0
-
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
     @State private var currentIndex: Int = 0
-    @State private var scopedURL: URL?
+    @State private var statisticsCopyTrigger: Int = 0
 
     // Callback to notify the parent when opening/processing fails
     var onOpenFailed: ((URL) -> Void)?
     var onOpenSucceeded: ((URL) -> Void)?
-
-    /// Extracts a cover image (direct image or archive entry) for the currently selected file.
-    private var coverImage: Image? {
-        guard let fileURL else { return nil }
-
-        // Always treat as archive
-        return ComicArchive(fileURL: fileURL).coverImage()
-    }
-
-    private func beginSecurityScope(for url: URL) -> Bool {
-        if let scopedURL, scopedURL == url { return true }
-        if let scopedURL { scopedURL.stopAccessingSecurityScopedResource() }
-        let ok = url.startAccessingSecurityScopedResource()
-        if ok { scopedURL = url }
-        return ok
-    }
-
-    private func endSecurityScope() {
-        if let scopedURL {
-            scopedURL.stopAccessingSecurityScopedResource()
-            self.scopedURL = nil
-        }
-    }
-
-    private func prepareEditableModel(from url: URL?) {
-        if comicInfoData == nil {
-            if let url, let info = ComicArchive(fileURL: url).getComicInfoData(), info.parse() {
-                comicInfoEdited.overwrite(from: info.parsed)
-                communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
-            }
-        } else if let model = comicInfoData {
-            comicInfoEdited.overwrite(from: model)
-            communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
-        }
-    }
-
-    private func ensurePagesCoverAllImages(from url: URL) {
-        let archive = ComicArchive(fileURL: url)
-        let total = archive.pageCount()
-        guard total > 0 else { return }
-
-        var finalPages = Array(repeating: ComicPageInfo(), count: total)
-        if let existing = comicInfoEdited.Pages, !existing.isEmpty {
-            let hasExplicitIndices = existing.contains { Int($0.Image) != nil }
-            if hasExplicitIndices {
-                for p in existing {
-                    if let idx = Int(p.Image), idx >= 0, idx < total { finalPages[idx] = p }
-                }
-            } else {
-                for (i, p) in existing.enumerated() where i < total { finalPages[i] = p }
-            }
-        } else {
-            for i in 0..<total { finalPages[i].Image = String(i) }
-        }
-        comicInfoEdited.Pages = finalPages
-        comicInfoEdited.PageCount = total
-    }
-
-    private func initialize(from url: URL?) {
-        // Reset basics
-        viewModel.pageCount = viewModel.computePageCount(for: url)
-        viewModel.fileSize = viewModel.computeFileSize(for: url)
-
-        guard let url else {
-            // Clear when no file is selected and end scope
-            viewModel.md5Hex = ""
-            viewModel.sha1Hex = ""
-            viewModel.crc32Hex = ""
-            endSecurityScope()
-            return
-        }
-
-        guard beginSecurityScope(for: url) else {
-            onOpenFailed?(url)
-            return
-        }
-
-        // Sanity check: ensure the archive can be opened
-        do {
-            _ = try Archive(url: url, accessMode: .read)
-            onOpenSucceeded?(url)
-        } catch {
-            onOpenFailed?(url)
-            return
-        }
-
-        // Parse ComicInfo.xml or use provided model
-        prepareEditableModel(from: url)
-
-        // Ensure Pages covers all images in the archive
-        ensurePagesCoverAllImages(from: url)
-
-        // Defer hash computation slightly to avoid hitching
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            await viewModel.refreshHashes(for: url)
-        }
-    }
 
     var body: some View {
         ZStack {
@@ -150,7 +49,7 @@ struct FileView: View {
                     NavigationSplitView(columnVisibility: $columnVisibility) {
                         VStack(alignment: .leading, spacing: 12) {
                             GroupBox("Cover Image") {
-                                CoverImageView(image: coverImage)
+                                CoverImageView(image: viewModel.coverImage)
                                     .frame(maxWidth: .infinity)
                             }
                             .padding(.leading)
@@ -199,11 +98,17 @@ struct FileView: View {
                         .frame(width: 260, alignment: .top)
                     } detail: {
                         TabView {
-                            BookInformationForm(comicInfo: comicInfoEdited, communityRatingValue: $communityRatingValue)
-                                .tabItem { Label("Info", systemImage: "info.circle") }
+                            BookInformationForm(
+                                comicInfo: viewModel.editableComicInfo
+                            )
+                            .tabItem { Label("Info", systemImage: "info.circle") }
 
-                            PagesTabView(fileURL: fileURL, pages: $comicInfoEdited.Pages, currentIndex: $currentIndex)
-                                .tabItem { Label("Pages", systemImage: "photo.on.rectangle") }
+                            PagesTabView(
+                                fileURL: fileURL,
+                                pages: $viewModel.editableComicInfo.Pages,
+                                currentIndex: $currentIndex
+                            )
+                            .tabItem { Label("Pages", systemImage: "photo.on.rectangle") }
                         }
                         .padding()
                     }
@@ -213,30 +118,16 @@ struct FileView: View {
             .padding()
         }
         .onAppear {
-            // Initialize editable model and derived values when the view appears.
-            if let model = comicInfoData {
-                comicInfoEdited.overwrite(from: model)
-            } else {
-                comicInfoEdited.overwrite(from: ComicInfoModel())
-            }
-            viewModel.pageCount = viewModel.computePageCount(for: fileURL)
-            viewModel.fileSize = viewModel.computeFileSize(for: fileURL)
-
-            initialize(from: fileURL)
+            viewModel.open(url: fileURL, providedComicInfo: comicInfoData)
         }
         .onChange(of: fileURL) { _, newValue in
-            initialize(from: newValue)
+            viewModel.open(url: newValue, providedComicInfo: comicInfoData)
         }
         .onChange(of: comicInfoData.map { ObjectIdentifier($0) }) { _, _ in
-            if let model = comicInfoData {
-                comicInfoEdited.overwrite(from: model)
-            } else {
-                comicInfoEdited.overwrite(from: ComicInfoModel())
-            }
-            communityRatingValue = comicInfoEdited.CommunityRating?.rawValue ?? 0
+            viewModel.open(url: fileURL, providedComicInfo: comicInfoData)
         }
         .onDisappear {
-            endSecurityScope()
+            viewModel.close()
         }
     }
 }
