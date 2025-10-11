@@ -9,6 +9,10 @@ final class MainViewModel: ObservableObject {
     @Published var hasFileOpened = false
     @Published var openedFile: URL?
 
+    init() {
+        recents.load()
+    }
+
     // Expose a stable date formatter for the view
     let lastOpenedFormatter: DateFormatter = {
         let df = DateFormatter()
@@ -16,10 +20,6 @@ final class MainViewModel: ObservableObject {
         df.timeStyle = .short
         return df
     }()
-
-    func onAppear() {
-        recents.load()
-    }
 
     func handleOpen(url: URL) {
         openedFile = url

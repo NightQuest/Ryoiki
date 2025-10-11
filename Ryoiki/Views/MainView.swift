@@ -167,7 +167,6 @@ struct MainView: View {
                     break
                 }
             }
-            .onAppear { vm.onAppear() }
             .onChange(of: vm.openedFile) { _, newValue in
                 if newValue == nil {
                     withAnimation(.easeInOut(duration: 0.2)) {
