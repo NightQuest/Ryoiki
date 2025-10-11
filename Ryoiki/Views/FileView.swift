@@ -102,6 +102,13 @@ struct FileView: View {
                                 currentIndex: $currentIndex
                             )
                             .tabItem { Label("Pages", systemImage: "photo.on.rectangle") }
+
+                            ReaderTabView(
+                                fileURL: fileURL,
+                                pages: $viewModel.editableComicInfo.Pages,
+                                currentIndex: $currentIndex
+                            )
+                            .tabItem { Label("Reader", systemImage: "book") }
                         }
                         .padding()
                     }
@@ -334,5 +341,155 @@ private struct PagesTabView: View {
         let fmt = ByteCountFormatter()
         fmt.countStyle = .file
         return fmt.string(fromByteCount: bytes)
+    }
+}
+
+// MARK: - ReaderTabView
+/// Dedicated immersive reader tab displaying pages using the ReaderView and image rendering without the editor or metrics.
+private struct ReaderTabView: View {
+    let fileURL: URL?
+    @Binding var pages: [ComicPageInfo]?
+    @Binding var currentIndex: Int
+
+    private var pageProvider: PageDetailProvider? {
+        guard let fileURL else { return nil }
+        return PageDetailProvider(fileURL: fileURL, pages: pages)
+    }
+
+    private func totalPages() -> Int {
+        (pages?.count).map { $0 } ?? 0
+    }
+
+    private var maxIndex: Int { max(0, totalPages() - 1) }
+
+    private var clampedIndex: Int { min(max(0, currentIndex), maxIndex) }
+
+    @ViewBuilder
+    private func currentImageView() -> some View {
+        if let pageProvider {
+            if let image = pageProvider.image(atZeroBased: clampedIndex) {
+                image.resizable().scaledToFit()
+            } else {
+                ContentUnavailableView("No Image", systemImage: "photo")
+            }
+        } else {
+            ContentUnavailableView("No File", systemImage: "photo")
+        }
+    }
+
+    private func pageHasMeaningfulValues(at index: Int) -> Bool {
+        guard let p = pages, index >= 0, index < p.count else { return false }
+        let page = p[index]
+        // Same criteria as PagesTabView
+        return page.PageType != .Story || !page.Bookmark.isEmpty || page.DoublePage || !page.Key.isEmpty
+    }
+
+    var body: some View {
+        ZStack {
+            ReaderView(currentIndex: $currentIndex, totalPages: totalPages(), maxIndex: maxIndex) {
+                ZoomableContainer {
+                    HStack {
+                        Spacer()
+                        currentImageView()
+                        Spacer()
+                    }
+                }
+            } pageHasMeaningfulValues: { i in
+                pageHasMeaningfulValues(at: i)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Tap regions overlay
+            GeometryReader { proxy in
+                HStack(spacing: 0) {
+                    // Left half: previous page
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            let prev = max(0, clampedIndex - 1)
+                            if prev != currentIndex {
+                                withTransaction(Transaction(animation: .default)) {
+                                    currentIndex = prev
+                                }
+                            }
+                        }
+                    // Right half: next page
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            let next = min(maxIndex, clampedIndex + 1)
+                            if next != currentIndex {
+                                withTransaction(Transaction(animation: .default)) {
+                                    currentIndex = next
+                                }
+                            }
+                        }
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+            .allowsHitTesting(true)
+        }
+        .padding(.all, 8)
+        .onAppear {
+            currentIndex = 0
+        }
+        .onChange(of: currentIndex) { _, _ in
+            let snapped = min(max(0, Int(Double(currentIndex).rounded())), maxIndex)
+            if snapped != currentIndex {
+                let transaction = Transaction(animation: nil)
+                withTransaction(transaction) {
+                    currentIndex = snapped
+                }
+            }
+        }
+    }
+}
+
+// MARK: - ZoomableContainer
+private struct ZoomableContainer<Content: View>: View {
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+
+    let content: () -> Content
+
+    var body: some View {
+        GeometryReader { _ in
+            content()
+                .scaleEffect(scale)
+                .offset(offset)
+                .animation(.default, value: scale)
+                .animation(.default, value: offset)
+                .gesture(
+                    MagnificationGesture()
+                        .onChanged { value in
+                            scale = min(max(1, lastScale * value), 4)
+                        }
+                        .onEnded { _ in
+                            lastScale = scale
+                        }
+                )
+                .simultaneousGesture(
+                    DragGesture()
+                        .onChanged { value in
+                            if scale > 1 {
+                                offset = CGSize(
+                                    width: lastOffset.width + value.translation.width,
+                                    height: lastOffset.height + value.translation.height
+                                )
+                            }
+                        }
+                        .onEnded { _ in
+                            lastOffset = offset
+                        }
+                )
+                .onChange(of: scale) { _, newValue in
+                    if newValue == 1 {
+                        offset = .zero
+                        lastOffset = .zero
+                    }
+                }
+        }
     }
 }
