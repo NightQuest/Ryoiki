@@ -65,7 +65,7 @@ struct MainView: View {
             } label: {
                 Label("Fetch", systemImage: "tray.and.arrow.down")
             }
-            .disabled(true)
+            .disabled(selectedComic == nil)
 
             Button {
             } label: {
