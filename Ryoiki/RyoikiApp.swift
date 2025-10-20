@@ -12,7 +12,8 @@ import SwiftData
 struct RyoikiApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Comic.self
+            Comic.self,
+            ComicPage.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
