@@ -3,21 +3,28 @@ import SwiftData
 
 struct MainView: View {
     @Environment(\.modelContext) private var context
-    
+
+    @State var isAddingComic: Bool = false
+
     var body: some View {
         VStack {
-            ContentUnavailableView("Select a comic",
+            ContentUnavailableView("No web comics found",
                                    systemImage: "square.grid.2x2",
-                                   description: Text("Choose a tile to see details"))
+                                   description: Text("Add a web comic"))
         }
         .toolbar { mainToolbar }
+        .sheet(isPresented: $isAddingComic) {
+            AddComicView()
+                .padding()
+        }
     }
-    
+
     // MARK: - Toolbars
     @ToolbarContentBuilder
     private var mainToolbar: some ToolbarContent {
         ToolbarItemGroup {
             Button {
+                isAddingComic.toggle()
             } label: {
                 Label("Add Web Comic", systemImage: "plus.app")
             }
