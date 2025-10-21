@@ -26,6 +26,7 @@ struct AppRootView: View {
     @State private var selectedComic: Comic?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var displayInspector: Bool = false
+    @State private var isInspectorAnimating: Bool = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -38,7 +39,7 @@ struct AppRootView: View {
         } detail: {
             switch selectedNavigation {
             case .library:
-                LibraryView(externalSelectedComic: $selectedComic, displayInspector: $displayInspector)
+                LibraryView(externalSelectedComic: $selectedComic, displayInspector: $displayInspector, isInspectorAnimating: $isInspectorAnimating)
             }
         }
         .inspector(isPresented: $displayInspector) {
@@ -47,6 +48,12 @@ struct AppRootView: View {
             }
         }
         .onChange(of: displayInspector) { _, newValue in
+            // Mark animation phase; delay reset to allow system animation to complete
+            isInspectorAnimating = true
+            // Estimate animation duration; adjust if needed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                isInspectorAnimating = false
+            }
             if !newValue { selectedComic = nil }
         }
         .onChange(of: selectedComic) { _, newValue in

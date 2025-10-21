@@ -9,6 +9,8 @@ struct LibraryView: View {
     // Selection binding from root
     @Binding var externalSelectedComic: Comic?
     @Binding var displayInspector: Bool
+    @Binding var isInspectorAnimating: Bool
+    @AppStorage("library.itemsPerRow") private var itemsPerRowPreference: Int = 6
 
     /// Shows either an empty state or the comics grid.
     @ViewBuilder
@@ -23,7 +25,10 @@ struct LibraryView: View {
             }
             .padding(.horizontal)
         } else {
-            ComicGrid(comics: comics, selectedComic: $externalSelectedComic)
+            ComicGrid(comics: comics,
+                      selectedComic: $externalSelectedComic,
+                      isInspectorAnimating: $isInspectorAnimating,
+                      itemsPerRowPreference: itemsPerRowPreference)
         }
     }
 
