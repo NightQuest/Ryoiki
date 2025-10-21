@@ -26,7 +26,7 @@ struct RyoikiApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainView()
+            NavigationView()
         }
         .modelContainer(sharedModelContainer)
         .windowToolbarStyle(.expanded)

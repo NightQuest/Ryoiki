@@ -1,8 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// The app's main view that lists comics and provides tools to add and manage them.
-struct MainView: View {
+struct LibraryView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Comic.name) private var comics: [Comic]
 
@@ -11,7 +10,7 @@ struct MainView: View {
 
     /// Shows either an empty state or the comics grid.
     @ViewBuilder
-    private var content: some View {
+    private var LibraryContent: some View {
         if comics.isEmpty {
             ContentUnavailableView("No web comics found",
                                    systemImage: "square.grid.2x2",
@@ -22,7 +21,7 @@ struct MainView: View {
     }
 
     var body: some View {
-        content
+        LibraryContent
         .toolbar { mainToolbar }
         .sheet(isPresented: $isAddingComic) {
             AddComicView { input in
@@ -73,52 +72,5 @@ struct MainView: View {
             }
             .disabled(true)
         }
-    }
-}
-
-// MARK: - Comic Grid
-
-/// Displays comics in a responsive grid and supports clearing selection by tapping empty space.
-struct ComicGrid: View {
-    let comics: [Comic]
-    @Binding var selectedComic: Comic?
-
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: Layout.gridColumns, spacing: Layout.gridSpacing) {
-                ForEach(comics, id: \.self) { comic in
-                    Button {
-                        selectedComic = comic
-                    } label: {
-                        ComicTile(comic: comic, isSelected: selectedComic == comic)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(Layout.gridPadding)
-        }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                selectedComic = nil
-            }
-        )
-    }
-}
-
-// MARK: - Selection Border Modifier
-struct SelectionBorder: ViewModifier {
-    let isSelected: Bool
-    func body(content: Content) -> some View {
-        content
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(.tint, lineWidth: isSelected ? 2 : 0)
-            )
-    }
-}
-
-extension View {
-    func selectionBorder(_ isSelected: Bool) -> some View {
-        modifier(SelectionBorder(isSelected: isSelected))
     }
 }
