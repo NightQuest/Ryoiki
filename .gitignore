@@ -7,4 +7,4 @@
 /cmake-build-*
 
 # Ignore xcode userdata
-/Ryoiki.xcodeproj/project.xcworkspace/xcuserdata
+/**/xcuserdata
