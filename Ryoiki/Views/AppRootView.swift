@@ -21,7 +21,7 @@ enum NavigationItems: Int, Hashable, CaseIterable, Identifiable, Codable {
 }
 
 /// The app's main view that lists comics and provides tools to add and manage them.
-struct NavigationView: View {
+struct AppRootView: View {
     @State var selectedNavigation: NavigationItems = .library
 
     var body: some View {
