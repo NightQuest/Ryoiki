@@ -5,72 +5,76 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Comic.name) private var comics: [Comic]
 
-    @State var isAddingComic: Bool = false
-    @State private var selectedComic: Comic?
+    @State private var isAddingComic: Bool = false
+    // Selection binding from root
+    @Binding var externalSelectedComic: Comic?
 
     /// Shows either an empty state or the comics grid.
     @ViewBuilder
     private var LibraryContent: some View {
         if comics.isEmpty {
-            ContentUnavailableView("No web comics found",
-                                   systemImage: "square.grid.2x2",
-                                   description: Text("Add a web comic"))
+            VStack(spacing: 24) {
+                ContentUnavailableView("No web comics found",
+                                       systemImage: "square.grid.2x2",
+                                       description: Text("Add a web comic"))
+                    .padding()
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .padding(.horizontal)
         } else {
-            ComicGrid(comics: comics, selectedComic: $selectedComic)
+            ComicGrid(comics: comics, selectedComic: $externalSelectedComic)
         }
     }
 
     var body: some View {
-        LibraryContent
-        .toolbar { mainToolbar }
-        .sheet(isPresented: $isAddingComic) {
-            AddComicView { input in
-                let comic = Comic(
-                    name: input.name,
-                    author: input.author,
-                    descriptionText: input.description,
-                    url: input.url,
-                    firstPageURL: input.firstPageURL,
-                    selectorImage: input.selectorImage,
-                    selectorTitle: input.selectorTitle,
-                    selectorNext: input.selectorNext
-                )
-                context.insert(comic)
-                do {
-                    try context.save()
-                } catch {
-                    // Handle save error appropriately (e.g., show an alert/log)
-                    print("Failed to save comic:", error.localizedDescription)
+        NavigationStack {
+            LibraryContent
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            isAddingComic = true
+                        } label: {
+                            Label("Add Web Comic", systemImage: "plus.app")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+
+                    ToolbarItem {
+                        Button { } label: {
+                            Label("Fetch", systemImage: "tray.and.arrow.down")
+                        }
+                        .disabled(externalSelectedComic == nil)
+                        .buttonStyle(.bordered)
+                    }
+
+                    ToolbarItem {
+                        Button { } label: {
+                            Label("Update", systemImage: "square.and.arrow.down")
+                        }
+                        .disabled(externalSelectedComic == nil)
+                        .buttonStyle(.bordered)
+                    }
                 }
-                isAddingComic = false
-            }
-            .padding()
-        }
-    }
-
-    // MARK: - Toolbars
-    @ToolbarContentBuilder
-    private var mainToolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            Button {
-                isAddingComic.toggle()
-            } label: {
-                Label("Add Web Comic", systemImage: "plus.app")
-            }
-        }
-
-        ToolbarItemGroup {
-            Button {
-            } label: {
-                Label("Fetch", systemImage: "tray.and.arrow.down")
-            }
-            .disabled(selectedComic == nil)
-
-            Button {
-            } label: {
-                Label("Update", systemImage: "square.and.arrow.down")
-            }
-            .disabled(true)
+                .navigationDestination(isPresented: $isAddingComic) {
+                    AddComicView { input in
+                        let comic = Comic(
+                            name: input.name,
+                            author: input.author,
+                            descriptionText: input.description,
+                            url: input.url,
+                            firstPageURL: input.firstPageURL,
+                            selectorImage: input.selectorImage,
+                            selectorTitle: input.selectorTitle,
+                            selectorNext: input.selectorNext
+                        )
+                        context.insert(comic)
+                        do {
+                            try context.save()
+                        } catch {
+                            print("Failed to save comic:", error.localizedDescription)
+                        }
+                    }
+                }
         }
     }
 }

@@ -23,18 +23,29 @@ enum NavigationItems: Int, Hashable, CaseIterable, Identifiable, Codable {
 /// The app's main view that lists comics and provides tools to add and manage them.
 struct AppRootView: View {
     @State var selectedNavigation: NavigationItems = .library
+    @State private var selectedComic: Comic?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(NavigationItems.allCases, selection: $selectedNavigation) { item in
                 NavigationLink(value: item) {
                     Label(item.localizedName, systemImage: item.systemImage)
                 }
             }
+            .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 340)
         } detail: {
             switch selectedNavigation {
             case .library:
-                LibraryView()
+                LibraryView(externalSelectedComic: $selectedComic)
+            }
+        }
+        .inspector(isPresented: Binding<Bool>(
+            get: { selectedComic != nil },
+            set: { newValue in if newValue == false { selectedComic = nil } }
+        )) {
+            if let comic = selectedComic {
+                ComicDetailView(comic: comic, onClose: { selectedComic = nil })
             }
         }
     }
