@@ -16,6 +16,10 @@ struct ComicDetailView: View {
                     LabeledContent("Author", value: comic.author)
                 }
 
+                if !comic.pages.isEmpty {
+                    LabeledContent("Pages", value: String(comic.pages.count))
+                }
+
                 if !comic.descriptionText.isEmpty {
                     Text(comic.descriptionText)
                         .foregroundStyle(.secondary)
