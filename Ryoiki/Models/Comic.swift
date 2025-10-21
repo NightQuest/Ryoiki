@@ -57,6 +57,8 @@ final class ComicPage {
     var pageURL: String
     var imageURL: String
 
+    var downloadPath: String = ""
+
     init(comic: Comic,
          index: Int,
          title: String,
