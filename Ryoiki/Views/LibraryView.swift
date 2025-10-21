@@ -8,6 +8,7 @@ struct LibraryView: View {
     @State private var isAddingComic: Bool = false
     // Selection binding from root
     @Binding var externalSelectedComic: Comic?
+    @Binding var displayInspector: Bool
 
     /// Shows either an empty state or the comics grid.
     @ViewBuilder
@@ -33,6 +34,7 @@ struct LibraryView: View {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
                             isAddingComic = true
+                            displayInspector = false
                         } label: {
                             Label("Add Web Comic", systemImage: "plus.app")
                         }

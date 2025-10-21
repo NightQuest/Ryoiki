@@ -25,6 +25,7 @@ struct AppRootView: View {
     @State var selectedNavigation: NavigationItems = .library
     @State private var selectedComic: Comic?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var displayInspector: Bool = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -37,16 +38,19 @@ struct AppRootView: View {
         } detail: {
             switch selectedNavigation {
             case .library:
-                LibraryView(externalSelectedComic: $selectedComic)
+                LibraryView(externalSelectedComic: $selectedComic, displayInspector: $displayInspector)
             }
         }
-        .inspector(isPresented: Binding<Bool>(
-            get: { selectedComic != nil },
-            set: { newValue in if newValue == false { selectedComic = nil } }
-        )) {
+        .inspector(isPresented: $displayInspector) {
             if let comic = selectedComic {
                 ComicDetailView(comic: comic, onClose: { selectedComic = nil })
             }
+        }
+        .onChange(of: displayInspector) { _, newValue in
+            if !newValue { selectedComic = nil }
+        }
+        .onChange(of: selectedComic) { _, newValue in
+            displayInspector = newValue != nil
         }
     }
 }
