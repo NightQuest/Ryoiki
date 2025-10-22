@@ -158,8 +158,10 @@ struct ComicPagesView: View {
     private var selectionToolbar: some ToolbarContent {
         ToolbarItemGroup {
             Button("Select All") { model.selection = Set(downloadedPages.map { $0.id }) }
+                .keyboardShortcut("A", modifiers: .command)
                 .disabled(downloadedPages.isEmpty || model.selection.count == downloadedPages.count)
             Button("Clear Selection") { model.selection.removeAll() }
+                .keyboardShortcut("D", modifiers: .command)
                 .disabled(model.selection.isEmpty)
             Text("\(model.selection.count) selected")
                 .foregroundStyle(.secondary)
