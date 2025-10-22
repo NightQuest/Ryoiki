@@ -11,6 +11,8 @@ import SwiftData
 import SwiftUI
 
 struct ComicDownloader: Sendable {
+    private let rateLimiter: RateLimiter
+
     enum Error: Swift.Error {
         case network(Swift.Error)
         case badStatus(Int)
@@ -23,7 +25,10 @@ struct ComicDownloader: Sendable {
     private let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15"
     private let session: URLSession
 
-    init(session: URLSession = .shared) { self.session = session }
+    init(session: URLSession = .shared, rateLimiter: RateLimiter = .shared) {
+        self.session = session
+        self.rateLimiter = rateLimiter
+    }
 
     // MARK: - Networking
 
@@ -38,6 +43,7 @@ struct ComicDownloader: Sendable {
     }
 
     private func request(url: URL, method: String, referer: URL?) async throws -> (Data, HTTPURLResponse) {
+        await rateLimiter.acquire(for: url)
         let request = makeRequest(url: url, method: method, referer: referer)
         do {
             let (data, response) = try await session.data(for: request)
@@ -58,6 +64,7 @@ struct ComicDownloader: Sendable {
 
     /// Downloads a resource to a temporary file using URLSession.download(for:), applying headers.
     private func downloadToTemp(url: URL, referer: URL?) async throws -> (URL, HTTPURLResponse) {
+        await rateLimiter.acquire(for: url)
         let request = makeRequest(url: url, method: "GET", referer: referer)
         do {
             let (tempURL, response) = try await session.download(for: request)
