@@ -11,6 +11,7 @@ struct ComicTile: View {
             result.image?
                 .resizable()
                 .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius))
         }
     }
 
