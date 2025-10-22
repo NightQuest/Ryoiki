@@ -10,6 +10,8 @@ struct LibraryView: View {
     @Binding var isInspectorAnimating: Bool
     @AppStorage("library.itemsPerRow") private var itemsPerRowPreference: Int = 6
     @State private var viewModel = LibraryViewModel()
+    @State private var showPages: Bool = false
+    @State private var pagesComic: Comic?
 
     @ViewBuilder
     private var LibraryContent: some View {
@@ -93,6 +95,16 @@ struct LibraryView: View {
             .disabled(externalSelectedComic == nil)
             .buttonStyle(.bordered)
 
+            Button {
+                pagesComic = externalSelectedComic
+                showPages = true
+                displayInspector = false
+            } label: {
+                Label("Pages", systemImage: "square.grid.3x3")
+            }
+            .disabled(!hasDownloadedPages(for: externalSelectedComic))
+            .buttonStyle(.bordered)
+
             Spacer()
 
             Slider(value: Binding<Double>(
@@ -126,6 +138,24 @@ struct LibraryView: View {
                         ComicEditorView { _ in }
                     }
                 }
+                .navigationDestination(isPresented: $showPages) {
+                    if let comic = pagesComic {
+                        ComicPagesView(comic: comic)
+                    } else {
+                        ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
+                    }
+                }
+        }
+    }
+
+    private func hasDownloadedPages(for comic: Comic?) -> Bool {
+        guard let comic else { return false }
+        let fm = FileManager.default
+        return comic.pages.contains { page in
+            if let url = page.downloadedFileURL {
+                return fm.fileExists(atPath: url.path)
+            }
+            return false
         }
     }
 }
