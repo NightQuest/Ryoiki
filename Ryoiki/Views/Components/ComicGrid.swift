@@ -19,18 +19,22 @@ struct ComicGrid: View {
 
     var body: some View {
         ScrollView {
-            GeometryReader { proxy in
-                let liveWidth = proxy.size.width
-                let columns: [GridItem] = computedColumns(for: liveWidth, itemsPerRowPreference: itemsPerRowPreference)
+            let columns: [GridItem] = computedColumns(itemsPerRowPreference: itemsPerRowPreference)
 
-                LazyVGrid(columns: columns, spacing: Layout.gridSpacing) {
-                    ForEach(comics, id: \.id) { comic in
-                        gridItem(for: comic)
-                    }
+            LazyVGrid(columns: columns, spacing: Layout.gridSpacing) {
+                ForEach(comics, id: \.id) { comic in
+                    gridItem(for: comic)
                 }
-                .padding(Layout.gridPadding)
-                .transaction { $0.animation = nil }
             }
+            .padding(Layout.gridPadding)
+            .transaction { $0.animation = nil }
+            .background(
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedComic = nil
+                    }
+            )
         }
         .alert("Delete \"\(comicPendingDelete?.name ?? "Comic")\"?", isPresented: $showDeleteAlert) {
             Button("Delete", role: .destructive) {
@@ -82,7 +86,7 @@ struct ComicGrid: View {
             }
     }
 
-    private func computedColumns(for width: CGFloat, itemsPerRowPreference: Int, minTileWidth: CGFloat = 160) -> [GridItem] {
+    private func computedColumns(itemsPerRowPreference: Int, minTileWidth: CGFloat = 160) -> [GridItem] {
         let spacing = Layout.gridSpacing
         if itemsPerRowPreference > 0 {
             let count = max(1, itemsPerRowPreference)
