@@ -23,7 +23,6 @@ struct ComicDownloader: Sendable {
 
     private let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15"
     private let session: URLSession
-    private let imageExtractor = ImageURLExtractor()
 
     init(session: URLSession = .shared) { self.session = session }
 
@@ -130,23 +129,6 @@ struct ComicDownloader: Sendable {
         return URL(string: trimmed, relativeTo: base)?.absoluteURL
     }
 
-    // MARK: - Parsing
-
-    // Parses srcset attribute value into array of (width: Int, url: String)
-    private func parseSrcset(_ srcset: String) -> [(width: Int, url: String)] {
-        srcset
-            .split(separator: ",")
-            .compactMap { item -> (Int, String)? in
-                let parts = item.trimmingCharacters(in: .whitespaces).split(separator: " ")
-                guard let first = parts.first else { return nil }
-                let url = String(first)
-                if let last = parts.last, last.hasSuffix("w"), let width = Int(last.dropLast()) {
-                    return (width, url)
-                }
-                return (0, url)
-            }
-    }
-
     func fetchPages(
         for comic: Comic,
         context: ModelContext,
@@ -191,7 +173,7 @@ struct ComicDownloader: Sendable {
             }
 
             let titleText = parseTitle(in: doc, selector: selectorTitle)
-            let imageURLs = imageExtractor.extractImageURLs(in: doc, selector: selectorImage, baseURL: currentURL)
+            let imageURLs = doc.imageURLs(selector: selectorImage, baseURL: currentURL)
 
             guard !imageURLs.isEmpty else { break }
 
@@ -271,13 +253,12 @@ struct ComicDownloader: Sendable {
             let groupCount = groupCountByURL[page.pageURL] ?? 1
             let compositeKey = "\(page.pageURL)|\(page.imageURL)"
             let subNumber = positionByCompositeKey[compositeKey]
+            let naming = PageNamingContext(baseIndex: baseIndex, groupCount: groupCount, subNumber: subNumber)
             if try await handlePageDownload(
                 page: page,
                 comicFolder: comicFolder,
                 overwrite: overwrite,
-                baseIndex: baseIndex,
-                groupCount: groupCount,
-                subNumber: subNumber
+                naming: naming
             ) {
                 filesWritten += 1
             }
@@ -286,16 +267,22 @@ struct ComicDownloader: Sendable {
         return filesWritten
     }
 
+    private struct PageNamingContext {
+        let baseIndex: Int
+        let groupCount: Int
+        let subNumber: Int?
+    }
+
     @MainActor
-    private func handlePageDownload(page: ComicPage, comicFolder: URL, overwrite: Bool, baseIndex: Int, groupCount: Int, subNumber: Int?) async throws -> Bool {
+    private func handlePageDownload(page: ComicPage, comicFolder: URL, overwrite: Bool, naming: PageNamingContext) async throws -> Bool {
         let fileManager = FileManager.default
 
         guard let pageURL = URL(string: page.pageURL) else {
             return false
         }
 
-        let indexPadded = String(format: "%05d", baseIndex)
-        let suffix = groupCount > 1 ? "-\(max(1, subNumber ?? 1))" : ""
+        let indexPadded = String(format: "%05d", naming.baseIndex)
+        let suffix = naming.groupCount > 1 ? "-\(max(1, naming.subNumber ?? 1))" : ""
         let indexWithSuffix = indexPadded + suffix
         let titlePart: String = page.title.isEmpty ? "" : " - " + sanitizeFilename(page.title)
 
@@ -478,8 +465,4 @@ struct ComicDownloader: Sendable {
         guard !visited.contains(next.absoluteString) else { return nil }
         return next
     }
-}
-
-extension String {
-    fileprivate var nilIfEmpty: String? { self.isEmpty ? nil : self }
 }
