@@ -235,6 +235,28 @@ struct ComicDownloader: Sendable {
             try fileManager.createDirectory(at: comicFolder, withIntermediateDirectories: true)
         }
 
+        // Precompute page-based indexing: group by pageURL to assign a shared base index and per-image position
+        let allPagesSorted = comic.pages.sorted { $0.index < $1.index }
+        var groupsByURL: [String: [ComicPage]] = [:]
+        for p in allPagesSorted {
+            groupsByURL[p.pageURL, default: []].append(p)
+        }
+        // Base index is the smallest index in the group
+        let baseIndexByURL: [String: Int] = groupsByURL.mapValues { group in
+            group.map { $0.index }.min() ?? 0
+        }
+        // Group count per URL
+        let groupCountByURL: [String: Int] = groupsByURL.mapValues { $0.count }
+        // Position map is 1-based position of each (pageURL,imageURL) within its group (ordered by ComicPage.index)
+        var positionByCompositeKey: [String: Int] = [:]
+        for (url, group) in groupsByURL {
+            let ordered = group.sorted { $0.index < $1.index }
+            for (i, p) in ordered.enumerated() {
+                let key = "\(url)|\(p.imageURL)"
+                positionByCompositeKey[key] = i + 1
+            }
+        }
+
         let availablePages = comic.pages
             .filter { page in
                 page.downloadPath.isEmpty ||
@@ -244,32 +266,44 @@ struct ComicDownloader: Sendable {
 
         var filesWritten = 0
 
-        for page in availablePages where try await handlePageDownload(
-            page: page,
-            comicFolder: comicFolder,
-            overwrite: overwrite) {
+        for page in availablePages {
+            let baseIndex = baseIndexByURL[page.pageURL] ?? page.index
+            let groupCount = groupCountByURL[page.pageURL] ?? 1
+            let compositeKey = "\(page.pageURL)|\(page.imageURL)"
+            let subNumber = positionByCompositeKey[compositeKey]
+            if try await handlePageDownload(
+                page: page,
+                comicFolder: comicFolder,
+                overwrite: overwrite,
+                baseIndex: baseIndex,
+                groupCount: groupCount,
+                subNumber: subNumber
+            ) {
                 filesWritten += 1
+            }
         }
 
         return filesWritten
     }
 
     @MainActor
-    private func handlePageDownload(page: ComicPage, comicFolder: URL, overwrite: Bool) async throws -> Bool {
+    private func handlePageDownload(page: ComicPage, comicFolder: URL, overwrite: Bool, baseIndex: Int, groupCount: Int, subNumber: Int?) async throws -> Bool {
         let fileManager = FileManager.default
 
         guard let pageURL = URL(string: page.pageURL) else {
             return false
         }
 
-        let indexPadded = String(format: "%05d", page.index)
+        let indexPadded = String(format: "%05d", baseIndex)
+        let suffix = groupCount > 1 ? "-\(max(1, subNumber ?? 1))" : ""
+        let indexWithSuffix = indexPadded + suffix
         let titlePart: String = page.title.isEmpty ? "" : " - " + sanitizeFilename(page.title)
 
         // Data URL path
         if page.imageURL.hasPrefix("data:") {
             guard let (mediatype, data) = decodeDataURL(page.imageURL) else { return false }
             let ext = fileExtension(contentType: mediatype, urlExtension: nil, fallback: "png")
-            let fileName = "\(indexPadded)\(titlePart).\(ext)"
+            let fileName = "\(indexWithSuffix)\(titlePart).\(ext)"
             let fileURL = comicFolder.appendingPathComponent(fileName)
 
             if !overwrite && fileManager.fileExists(atPath: fileURL.path) {
@@ -291,7 +325,7 @@ struct ComicDownloader: Sendable {
         let contentType = response.value(forHTTPHeaderField: "Content-Type")
         let ext = fileExtension(contentType: contentType, urlExtension: imageURL.pathExtension, fallback: "png")
 
-        let fileName = "\(indexPadded)\(titlePart).\(ext)"
+        let fileName = "\(indexWithSuffix)\(titlePart).\(ext)"
         let fileURL = comicFolder.appendingPathComponent(fileName)
 
         defer { try? fileManager.removeItem(at: tempURL) }
