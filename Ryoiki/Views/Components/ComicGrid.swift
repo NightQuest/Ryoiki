@@ -14,7 +14,6 @@ struct ComicGrid: View {
 
     @Environment(\.modelContext) private var modelContext
 
-    @State private var frozenWidth: CGFloat?
     @State private var showDeleteAlert: Bool = false
     @State private var comicPendingDelete: Comic?
 
@@ -22,8 +21,7 @@ struct ComicGrid: View {
         ScrollView {
             GeometryReader { proxy in
                 let liveWidth = proxy.size.width
-                let effectiveWidth = (isInspectorAnimating ? (frozenWidth ?? liveWidth) : (frozenWidth ?? liveWidth))
-                let columns: [GridItem] = computedColumns(for: effectiveWidth, itemsPerRowPreference: itemsPerRowPreference)
+                let columns: [GridItem] = computedColumns(for: liveWidth, itemsPerRowPreference: itemsPerRowPreference)
 
                 LazyVGrid(columns: columns, spacing: Layout.gridSpacing) {
                     ForEach(comics, id: \.id) { comic in
@@ -32,22 +30,6 @@ struct ComicGrid: View {
                 }
                 .padding(Layout.gridPadding)
                 .transaction { $0.animation = nil }
-                .onAppear {
-                    if frozenWidth == nil {
-                        frozenWidth = liveWidth
-                    }
-                }
-                .onChange(of: isInspectorAnimating) { _, animating in
-                    if !animating {
-                        // When animation ends, sync to the current width to avoid a final snap
-                        frozenWidth = liveWidth
-                    }
-                }
-                .onChange(of: proxy.size.width) { _, newWidth in
-                    if !isInspectorAnimating {
-                        frozenWidth = newWidth
-                    }
-                }
             }
         }
         .alert("Delete \"\(comicPendingDelete?.name ?? "Comic")\"?", isPresented: $showDeleteAlert) {
@@ -103,11 +85,12 @@ struct ComicGrid: View {
     private func computedColumns(for width: CGFloat, itemsPerRowPreference: Int, minTileWidth: CGFloat = 160) -> [GridItem] {
         let spacing = Layout.gridSpacing
         if itemsPerRowPreference > 0 {
-            let count = itemsPerRowPreference
+            let count = max(1, itemsPerRowPreference)
+            // Fixed number of columns; tiles will shrink/grow to fit while maintaining their internal aspect ratios
             return Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .top), count: count)
         } else {
-            let count = max(1, Int((width + spacing) / (minTileWidth + spacing)))
-            return Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .top), count: count)
+            // Fallback to adaptive when no preference is set
+            return [GridItem(.adaptive(minimum: minTileWidth, maximum: 260), spacing: spacing, alignment: .top)]
         }
     }
 }
