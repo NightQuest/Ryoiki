@@ -11,17 +11,18 @@ struct ComicTile: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: Layout.cornerRadius)
                         .fill(.quaternary)
-                    AsyncImage(url: URL(string: comic.pages.first?.downloadPath ?? "")) { phase in
-                        if let image = phase.image {
-                            image
-                                .resizable()
-                                .scaledToFit()
-                                .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius))
-                        } else {
-                            Image(systemName: "photo")
-                                .font(.system(size: 36))
-                                .foregroundStyle(.secondary)
-                        }
+                    let firstLocalURL: URL? = {
+                        guard let first = comic.pages.min(by: { $0.index < $1.index }),
+                              let url = first.downloadedFileURL else { return nil }
+                        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+                    }()
+                    if let firstLocalURL {
+                        ThumbnailImage(url: firstLocalURL, maxPixel: 512)
+                            .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius))
+                    } else {
+                        Image(systemName: "photo")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .aspectRatio(contentMode: .fit)
@@ -52,3 +53,4 @@ struct ComicTile: View {
         }
     }
 }
+

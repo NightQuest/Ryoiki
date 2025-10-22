@@ -10,6 +10,7 @@ struct ComicGrid: View {
     let onEdit: ((Comic) -> Void)?
     let onFetch: ((Comic) -> Void)?
     let onUpdate: ((Comic) -> Void)?
+    let onOpenPages: ((Comic) -> Void)?
 
     @Environment(\.modelContext) private var modelContext
 
@@ -22,46 +23,11 @@ struct ComicGrid: View {
             GeometryReader { proxy in
                 let liveWidth = proxy.size.width
                 let effectiveWidth = (isInspectorAnimating ? (frozenWidth ?? liveWidth) : (frozenWidth ?? liveWidth))
-                let columns = computedColumns(for: effectiveWidth, itemsPerRowPreference: itemsPerRowPreference)
+                let columns: [GridItem] = computedColumns(for: effectiveWidth, itemsPerRowPreference: itemsPerRowPreference)
 
                 LazyVGrid(columns: columns, spacing: Layout.gridSpacing) {
                     ForEach(comics, id: \.id) { comic in
-                        Button {
-                            selectedComic = comic
-                        } label: {
-                            ComicTile(comic: comic, isSelected: selectedComic == comic)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                onEdit?(comic)
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-
-                            Divider()
-
-                            Button {
-                                onFetch?(comic)
-                            } label: {
-                                Label("Fetch", systemImage: "tray.and.arrow.down")
-                            }
-
-                            Button {
-                                onUpdate?(comic)
-                            } label: {
-                                Label("Update", systemImage: "square.and.arrow.down")
-                            }
-
-                            Divider()
-
-                            Button(role: .destructive) {
-                                comicPendingDelete = comic
-                                showDeleteAlert = true
-                            } label: {
-                                Label("Delete Comic…", systemImage: "trash")
-                            }
-                        }
+                        gridItem(for: comic)
                     }
                 }
                 .padding(Layout.gridPadding)
@@ -107,6 +73,36 @@ struct ComicGrid: View {
                 selectedComic = nil
             }
         )
+    }
+
+    @ViewBuilder
+    private func gridItem(for comic: Comic) -> some View {
+        ComicTile(comic: comic,
+                  isSelected: selectedComic == comic)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                TapGesture(count: 2)
+                    .exclusively(before: TapGesture(count: 1))
+                    .onEnded { result in
+                        switch result {
+                        case .first:
+                            onOpenPages?(comic)
+                        case .second:
+                            selectedComic = comic
+                        }
+                    }
+            )
+            .contextMenu {
+                Button { onEdit?(comic) } label: { Label("Edit", systemImage: "pencil") }
+                Divider()
+                Button { onFetch?(comic) } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
+                Button { onUpdate?(comic) } label: { Label("Update", systemImage: "square.and.arrow.down") }
+                Divider()
+                Button(role: .destructive) {
+                    comicPendingDelete = comic
+                    showDeleteAlert = true
+                } label: { Label("Delete Comic…", systemImage: "trash") }
+            }
     }
 
     private func computedColumns(for width: CGFloat, itemsPerRowPreference: Int, minTileWidth: CGFloat = 160) -> [GridItem] {

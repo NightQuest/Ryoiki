@@ -8,6 +8,7 @@ struct ComicPagesView: View {
     let comic: Comic
 
     @State private var model = ComicPagesSelectionModel()
+    @State private var pendingLayoutUpdate: Task<Void, Never>?
 
     private var downloadedPages: [ComicPage] {
         comic.pages
@@ -117,20 +118,18 @@ struct ComicPagesView: View {
                         }
                         .backgroundPreferenceValue(TileFramesPreferenceKey.self) { anchors in
                             GeometryReader { proxy in
-                                let frames = resolveFrames(anchors, proxy: proxy)
-                                let origin = proxy.frame(in: .global).origin
                                 Color.clear
                                     .onAppear {
-                                        model.updateItemFrames(frames)
-                                        model.updateGridOrigin(origin)
-                                        model.updateOrderedIDs(downloadedPages.map { $0.id })
+                                        let frames = resolveFrames(anchors, proxy: proxy)
+                                        let origin = proxy.frame(in: .global).origin
+                                        let ids = downloadedPages.map { $0.id }
+                                        scheduleLayoutUpdate(frames: frames, origin: origin, orderedIDs: ids)
                                     }
                                     .onChange(of: anchors) { _, _ in
-                                        model.updateItemFrames(resolveFrames(anchors, proxy: proxy))
-                                        model.updateOrderedIDs(downloadedPages.map { $0.id })
-                                    }
-                                    .onChange(of: origin) { _, newOrigin in
-                                        model.updateGridOrigin(newOrigin)
+                                        let frames = resolveFrames(anchors, proxy: proxy)
+                                        let origin = proxy.frame(in: .global).origin
+                                        let ids = downloadedPages.map { $0.id }
+                                        scheduleLayoutUpdate(frames: frames, origin: origin, orderedIDs: ids)
                                     }
                             }
                         }
@@ -140,6 +139,18 @@ struct ComicPagesView: View {
             }
         }
         .navigationTitle("Pages: \(comic.name)")
+    }
+
+    private func scheduleLayoutUpdate(frames: [UUID: CGRect], origin: CGPoint, orderedIDs: [UUID]) {
+        pendingLayoutUpdate?.cancel()
+        pendingLayoutUpdate = Task { @MainActor in
+            // Coalesce multiple updates in the same frame
+            try? await Task.sleep(for: .milliseconds(1))
+            if Task.isCancelled { return }
+            model.updateItemFrames(frames)
+            model.updateGridOrigin(origin)
+            model.updateOrderedIDs(orderedIDs)
+        }
     }
 
     // MARK: - Toolbar

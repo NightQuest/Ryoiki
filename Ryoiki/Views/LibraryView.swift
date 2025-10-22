@@ -43,6 +43,14 @@ struct LibraryView: View {
                     externalSelectedComic = comic
                     viewModel.update(comic: comic, context: context)
                 }
+                ,
+                onOpenPages: { comic in
+                    externalSelectedComic = comic
+                    if hasDownloadedPages(for: comic) {
+                        pagesComic = comic
+                        showPages = true
+                    }
+                }
             )
         }
     }
@@ -98,7 +106,6 @@ struct LibraryView: View {
             Button {
                 pagesComic = externalSelectedComic
                 showPages = true
-                displayInspector = false
             } label: {
                 Label("Pages", systemImage: "square.grid.3x3")
             }
@@ -123,6 +130,11 @@ struct LibraryView: View {
         NavigationStack {
             LibraryContent
                 .toolbar { toolbarContent }
+                .onChange(of: showPages) { _, newValue in
+                    if newValue {
+                        displayInspector = false
+                    }
+                }
                 .navigationDestination(isPresented: $viewModel.isAddingComic) {
                     ComicEditorView { input in
                         viewModel.addComic(input: input, context: context)
@@ -141,6 +153,7 @@ struct LibraryView: View {
                 .navigationDestination(isPresented: $showPages) {
                     if let comic = pagesComic {
                         ComicPagesView(comic: comic)
+                            .onAppear { displayInspector = false }
                     } else {
                         ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
                     }
