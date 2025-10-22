@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import SwiftData
 
 private struct ValidationText: View {
     let message: String
@@ -12,7 +13,7 @@ private struct ValidationText: View {
 }
 
 struct ComicMetadataSection: View {
-    @Bindable var vm: AddComicViewModel
+    @Bindable var vm: ComicEditorViewModel
 
     public var body: some View {
         Section {
@@ -72,7 +73,7 @@ struct ComicMetadataSection: View {
 }
 
 struct CSSSelectorSection: View {
-    @Bindable var vm: AddComicViewModel
+    @Bindable var vm: ComicEditorViewModel
 
     var body: some View {
         Section {
@@ -100,14 +101,25 @@ struct CSSSelectorSection: View {
     }
 }
 
-struct AddComicView: View {
+struct ComicEditorView: View {
     // MARK: External API
     /// Called when the user confirms the form.
     var onSubmit: ((ComicInput) -> Void)?
+    let comicToEdit: Comic?
 
     // MARK: Internal State
-    @State private var vm = AddComicViewModel()
+    @State private var vm: ComicEditorViewModel
     @Environment(\.dismiss) var dismiss
+
+    init(comicToEdit: Comic? = nil, onSubmit: ((ComicInput) -> Void)? = nil) {
+        self.comicToEdit = comicToEdit
+        self.onSubmit = onSubmit
+        if let comic = comicToEdit {
+            _vm = State(initialValue: ComicEditorViewModel(comic: comic))
+        } else {
+            _vm = State(initialValue: ComicEditorViewModel())
+        }
+    }
 
     // MARK: Body
     var body: some View {
@@ -145,7 +157,7 @@ struct AddComicView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .navigationTitle("Add Web Comic")
+        .navigationTitle(comicToEdit == nil ? "Add Web Comic" : "Edit Web Comic")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 cancelButton
@@ -178,7 +190,7 @@ struct AddComicView: View {
 
     @ViewBuilder
     private var addButton: some View {
-        Button("Add") {
+        Button(comicToEdit == nil ? "Add" : "Save") {
             if let input = vm.buildInput() {
                 onSubmit?(input)
                 dismiss()

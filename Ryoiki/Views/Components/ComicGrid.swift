@@ -7,6 +7,10 @@ struct ComicGrid: View {
     @Binding var isInspectorAnimating: Bool
     let itemsPerRowPreference: Int
 
+    let onEdit: ((Comic) -> Void)?
+    let onFetch: ((Comic) -> Void)?
+    let onUpdate: ((Comic) -> Void)?
+
     @Environment(\.modelContext) private var modelContext
 
     @State private var frozenWidth: CGFloat?
@@ -29,6 +33,28 @@ struct ComicGrid: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            Button {
+                                onEdit?(comic)
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+
+                            Divider()
+
+                            Button {
+                                onFetch?(comic)
+                            } label: {
+                                Label("Fetch", systemImage: "tray.and.arrow.down")
+                            }
+
+                            Button {
+                                onUpdate?(comic)
+                            } label: {
+                                Label("Update", systemImage: "square.and.arrow.down")
+                            }
+
+                            Divider()
+
                             Button(role: .destructive) {
                                 comicPendingDelete = comic
                                 showDeleteAlert = true

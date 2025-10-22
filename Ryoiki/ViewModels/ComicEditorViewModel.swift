@@ -18,7 +18,9 @@ struct ComicInput {
 
 // MARK: - ViewModel
 
-@MainActor @Observable final class AddComicViewModel {
+@MainActor
+@Observable
+final class ComicEditorViewModel {
     // MARK: Stored Properties - Comic Info
 
     var comicName: String = ""
@@ -32,6 +34,16 @@ struct ComicInput {
     var comicSelectorImage: String = "" { didSet { scheduleImageValidation() } }
     var comicSelectorTitle: String = "" { didSet { scheduleTitleValidation() } }
     var comicSelectorNextPage: String = "" { didSet { scheduleNextValidation() } }
+
+    // MARK: Stored Properties - Initial Snapshot for Change Detection
+    @ObservationIgnored private var initialName: String = ""
+    @ObservationIgnored private var initialAuthor: String = ""
+    @ObservationIgnored private var initialDescription: String = ""
+    @ObservationIgnored private var initialURL: String = ""
+    @ObservationIgnored private var initialFirstPageURL: String = ""
+    @ObservationIgnored private var initialSelectorImage: String = ""
+    @ObservationIgnored private var initialSelectorTitle: String = ""
+    @ObservationIgnored private var initialSelectorNext: String = ""
 
     // MARK: Stored Properties - Validation States
 
@@ -68,22 +80,58 @@ struct ComicInput {
         isNextSelectorSyntaxValid
     }
 
-    /// Indicates if any user input has been provided.
+    /// Indicates if any user input differs from the initial snapshot.
     var hasUnsavedChanges: Bool {
-        !(comicName.isEmpty &&
-          comicAuthor.isEmpty &&
-          comicDescription.isEmpty &&
-          comicURL.isEmpty &&
-          comicCurrentURL.isEmpty &&
-          comicSelectorImage.isEmpty &&
-          comicSelectorTitle.isEmpty &&
-          comicSelectorNextPage.isEmpty)
+        func t(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return t(comicName) != t(initialName) ||
+               t(comicAuthor) != t(initialAuthor) ||
+               t(comicDescription) != t(initialDescription) ||
+               t(comicURL) != t(initialURL) ||
+               t(comicCurrentURL) != t(initialFirstPageURL) ||
+               t(comicSelectorImage) != t(initialSelectorImage) ||
+               t(comicSelectorTitle) != t(initialSelectorTitle) ||
+               t(comicSelectorNextPage) != t(initialSelectorNext)
     }
 
     // MARK: Lifecycle
 
     init() {
         initializeValidationStates()
+        // Capture initial snapshot for Add flow (all empty by default)
+        initialName = comicName
+        initialAuthor = comicAuthor
+        initialDescription = comicDescription
+        initialURL = comicURL
+        initialFirstPageURL = comicCurrentURL
+        initialSelectorImage = comicSelectorImage
+        initialSelectorTitle = comicSelectorTitle
+        initialSelectorNext = comicSelectorNextPage
+    }
+
+    // MARK: Prefill from existing Comic
+
+    convenience init(comic: Comic) {
+        self.init()
+        // Prefill from existing comic
+        self.comicName = comic.name
+        self.comicAuthor = comic.author
+        self.comicDescription = comic.descriptionText
+        self.comicURL = comic.url
+        self.comicCurrentURL = comic.firstPageURL
+        self.comicSelectorImage = comic.selectorImage
+        self.comicSelectorTitle = comic.selectorTitle
+        self.comicSelectorNextPage = comic.selectorNext
+        // Initialize validation states based on prefilled values
+        self.initializeValidationStates()
+        // Capture initial snapshot for Edit flow (prefilled values)
+        self.initialName = self.comicName
+        self.initialAuthor = self.comicAuthor
+        self.initialDescription = self.comicDescription
+        self.initialURL = self.comicURL
+        self.initialFirstPageURL = self.comicCurrentURL
+        self.initialSelectorImage = self.comicSelectorImage
+        self.initialSelectorTitle = self.comicSelectorTitle
+        self.initialSelectorNext = self.comicSelectorNextPage
     }
 
     // MARK: Public API

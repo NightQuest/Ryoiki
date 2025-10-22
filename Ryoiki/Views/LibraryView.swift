@@ -4,15 +4,12 @@ import SwiftData
 struct LibraryView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Comic.name) private var comics: [Comic]
-    @State private var isAddingComic: Bool = false
+    @Binding var isEditingComic: Bool
     @Binding var externalSelectedComic: Comic?
     @Binding var displayInspector: Bool
     @Binding var isInspectorAnimating: Bool
     @AppStorage("library.itemsPerRow") private var itemsPerRowPreference: Int = 6
-    @State private var isFetching: Bool = false
-    @State private var isUpdating: Bool = false
-    @State private var fetchTask: Task<Void, Never>?
-    @State private var updateTask: Task<Void, Never>?
+    @State private var viewModel = LibraryViewModel()
 
     @ViewBuilder
     private var LibraryContent: some View {
@@ -26,10 +23,25 @@ struct LibraryView: View {
             }
             .padding(.horizontal)
         } else {
-            ComicGrid(comics: comics,
-                      selectedComic: $externalSelectedComic,
-                      isInspectorAnimating: $isInspectorAnimating,
-                      itemsPerRowPreference: itemsPerRowPreference)
+            ComicGrid(
+                comics: comics,
+                selectedComic: $externalSelectedComic,
+                isInspectorAnimating: $isInspectorAnimating,
+                itemsPerRowPreference: itemsPerRowPreference,
+                onEdit: { comic in
+                    externalSelectedComic = comic
+                    isEditingComic = true
+                    displayInspector = false
+                },
+                onFetch: { comic in
+                    externalSelectedComic = comic
+                    viewModel.fetch(comic: comic, context: context)
+                },
+                onUpdate: { comic in
+                    externalSelectedComic = comic
+                    viewModel.update(comic: comic, context: context)
+                }
+            )
         }
     }
 
@@ -37,7 +49,7 @@ struct LibraryView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
             Button {
-                isAddingComic = true
+                viewModel.isAddingComic = true
                 displayInspector = false
             } label: {
                 Label("Add Web Comic", systemImage: "plus.app")
@@ -45,27 +57,38 @@ struct LibraryView: View {
             .buttonStyle(.borderedProminent)
 
             Button {
-                if !isFetching {
-                    fetchSelected()
-                } else {
-                    // Stop fetching
-                    fetchTask?.cancel()
-                }
+                isEditingComic = true
+                displayInspector = false
             } label: {
-                if isFetching { ProgressView() } else { Label("Fetch", systemImage: "tray.and.arrow.down") }
+                Label("Edit", systemImage: "pencil")
             }
             .disabled(externalSelectedComic == nil)
             .buttonStyle(.bordered)
 
             Button {
-                if !isUpdating {
-                    updateSelected()
-                } else {
-                    // Stop updating
-                    updateTask?.cancel()
+                if let comic = externalSelectedComic {
+                    if !viewModel.isFetching {
+                        viewModel.fetch(comic: comic, context: context)
+                    } else {
+                        viewModel.cancelFetch()
+                    }
                 }
             } label: {
-                if isUpdating { ProgressView() } else { Label("Update", systemImage: "square.and.arrow.down") }
+                if viewModel.isFetching { ProgressView() } else { Label("Fetch", systemImage: "tray.and.arrow.down") }
+            }
+            .disabled(externalSelectedComic == nil)
+            .buttonStyle(.bordered)
+
+            Button {
+                if let comic = externalSelectedComic {
+                    if !viewModel.isUpdating {
+                        viewModel.update(comic: comic, context: context)
+                    } else {
+                        viewModel.cancelUpdate()
+                    }
+                }
+            } label: {
+                if viewModel.isUpdating { ProgressView() } else { Label("Update", systemImage: "square.and.arrow.down") }
             }
             .disabled(externalSelectedComic == nil)
             .buttonStyle(.bordered)
@@ -84,72 +107,25 @@ struct LibraryView: View {
     }
 
     var body: some View {
+        @Bindable var viewModel = viewModel
         NavigationStack {
             LibraryContent
                 .toolbar { toolbarContent }
-                .navigationDestination(isPresented: $isAddingComic) {
-                    AddComicView { input in
-                        let comic = Comic(
-                            name: input.name,
-                            author: input.author,
-                            descriptionText: input.description,
-                            url: input.url,
-                            firstPageURL: input.firstPageURL,
-                            selectorImage: input.selectorImage,
-                            selectorTitle: input.selectorTitle,
-                            selectorNext: input.selectorNext
-                        )
-                        context.insert(comic)
-                        do {
-                            try context.save()
-                        } catch {
-                            print("Failed to save comic:", error.localizedDescription)
-                        }
+                .navigationDestination(isPresented: $viewModel.isAddingComic) {
+                    ComicEditorView { input in
+                        viewModel.addComic(input: input, context: context)
                     }
                 }
-        }
-    }
-
-    private func fetchSelected() {
-        guard let comic = externalSelectedComic else { return }
-        isFetching = true
-        fetchTask = Task { @MainActor in
-            defer {
-                isFetching = false
-                fetchTask = nil
-            }
-            let scraper = ComicDownloader()
-            do {
-                _ = try await scraper.fetchPages(for: comic, context: context)
-            } catch is CancellationError {
-                // Fetch cancelled by user
-            } catch let urlError as URLError where urlError.code == .cancelled {
-                // Network task cancelled by user
-            } catch {
-                print("Fetch failed: \(error)")
-            }
-        }
-    }
-
-    private func updateSelected() {
-        guard let comic = externalSelectedComic else { return }
-        isUpdating = true
-        updateTask = Task { @MainActor in
-            defer {
-                isUpdating = false
-                updateTask = nil
-            }
-            let scraper = ComicDownloader()
-            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-            do {
-                _ = try await scraper.downloadImages(for: comic, to: docs, context: context, overwrite: false)
-            } catch is CancellationError {
-                // Update cancelled by user
-            } catch let urlError as URLError where urlError.code == .cancelled {
-                // Network task cancelled by user
-            } catch {
-                print("Update failed: \(error)")
-            }
+                .navigationDestination(isPresented: $isEditingComic) {
+                    if let comic = externalSelectedComic {
+                        ComicEditorView(comicToEdit: comic) { input in
+                            viewModel.editComic(comic: comic, input: input, context: context)
+                        }
+                    } else {
+                        // Fallback if selection was lost; present empty editor (should not happen normally)
+                        ComicEditorView { _ in }
+                    }
+                }
         }
     }
 }
