@@ -11,7 +11,7 @@ import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct ComicDownloader {
+struct ComicDownloader: Sendable {
     enum Error: Swift.Error {
         case network(Swift.Error)
         case badStatus(Int)
@@ -23,6 +23,7 @@ struct ComicDownloader {
 
     private let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15"
     private let session: URLSession
+    private let imageExtractor = ImageURLExtractor()
 
     init(session: URLSession = .shared) { self.session = session }
 
@@ -126,38 +127,24 @@ struct ComicDownloader {
 
     private func absoluteURL(_ string: String, base: URL) -> URL? {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let url = URL(string: trimmed), url.scheme != nil {
-            return url
-        } else {
-            return URL(string: trimmed, relativeTo: base)?.absoluteURL
-        }
+        return URL(string: trimmed, relativeTo: base)?.absoluteURL
     }
 
     // MARK: - Parsing
 
     // Parses srcset attribute value into array of (width: Int, url: String)
     private func parseSrcset(_ srcset: String) -> [(width: Int, url: String)] {
-        // srcset example: "image-100w.jpg 100w, image-200w.jpg 200w"
-        // split by comma
-        var results: [(width: Int, url: String)] = []
-        let items = srcset.split(separator: ",")
-        for item in items {
-            let parts = item.trimmingCharacters(in: .whitespaces).split(separator: " ")
-            if parts.count == 2 {
-                let urlPart = String(parts[0])
-                let widthPart = parts[1]
-                if widthPart.hasSuffix("w") {
-                    let numStr = widthPart.dropLast()
-                    if let widthInt = Int(numStr) {
-                        results.append((width: widthInt, url: urlPart))
-                    }
+        srcset
+            .split(separator: ",")
+            .compactMap { item -> (Int, String)? in
+                let parts = item.trimmingCharacters(in: .whitespaces).split(separator: " ")
+                guard let first = parts.first else { return nil }
+                let url = String(first)
+                if let last = parts.last, last.hasSuffix("w"), let width = Int(last.dropLast()) {
+                    return (width, url)
                 }
-            } else if parts.count == 1 {
-                // If no descriptor, treat as width 0
-                results.append((width: 0, url: String(parts[0])))
+                return (0, url)
             }
-        }
-        return results
     }
 
     func fetchPages(
@@ -188,7 +175,7 @@ struct ComicDownloader {
         var currentURL = firstPageURL
         var previousURL: URL?
 
-        for _ in 0..<Int.max {
+        while true {
             try Task.checkCancellation()
             if let maxPages, pagesAdded >= maxPages { break }
             guard !visitedURLs.contains(currentURL.absoluteString) else { break }
@@ -204,7 +191,7 @@ struct ComicDownloader {
             }
 
             let titleText = parseTitle(in: doc, selector: selectorTitle)
-            let imageURLs = extractImageURLs(in: doc, selector: selectorImage, baseURL: currentURL)
+            let imageURLs = imageExtractor.extractImageURLs(in: doc, selector: selectorImage, baseURL: currentURL)
 
             guard !imageURLs.isEmpty else { break }
 
@@ -281,7 +268,7 @@ struct ComicDownloader {
         // Data URL path
         if page.imageURL.hasPrefix("data:") {
             guard let (mediatype, data) = decodeDataURL(page.imageURL) else { return false }
-            let ext = fileExtension(from: mediatype, fallback: "png")
+            let ext = fileExtension(contentType: mediatype, urlExtension: nil, fallback: "png")
             let fileName = "\(indexPadded)\(titlePart).\(ext)"
             let fileURL = comicFolder.appendingPathComponent(fileName)
 
@@ -302,7 +289,7 @@ struct ComicDownloader {
             return false
         }
         let contentType = response.value(forHTTPHeaderField: "Content-Type")
-        let ext = fileExtension(from: contentType, fallback: "png")
+        let ext = fileExtension(contentType: contentType, urlExtension: imageURL.pathExtension, fallback: "png")
 
         let fileName = "\(indexPadded)\(titlePart).\(ext)"
         let fileURL = comicFolder.appendingPathComponent(fileName)
@@ -322,11 +309,12 @@ struct ComicDownloader {
         return true
     }
 
-    private func fileExtension(from contentType: String?, fallback: String) -> String {
-        guard let contentType = contentType, let type = UTType(mimeType: contentType), let ext = type.preferredFilenameExtension else {
-            return fallback
+    private func fileExtension(contentType: String?, urlExtension: String?, fallback: String) -> String {
+        if let contentType, let type = UTType(mimeType: contentType), let ext = type.preferredFilenameExtension {
+            return ext
         }
-        return ext
+        if let urlExtension, !urlExtension.isEmpty { return urlExtension }
+        return fallback
     }
 
     private func sanitizeFilename(_ filename: String) -> String {
@@ -367,56 +355,18 @@ struct ComicDownloader {
 
     private func parseTitle(in doc: Document, selector: String) -> String? {
         guard !selector.isEmpty else { return nil }
-        do {
-            if let element = try doc.select(selector).first() {
-                let t = try element.text().trimmingCharacters(in: .whitespacesAndNewlines)
-                return t.isEmpty ? nil : t
-            }
-        } catch { }
-        return nil
-    }
-
-    private func extractImageURLs(in doc: Document, selector: String, baseURL: URL) -> [URL] {
-        do {
-            let elements = try doc.select(selector)
-            guard !elements.isEmpty else { return [] }
-            var urls: [URL] = []
-            for element in elements.array() {
-                var urlString: String?
-                if let srcset = try? element.attr("srcset"), !srcset.isEmpty {
-                    let candidates = parseSrcset(srcset)
-                    if let largest = candidates.max(by: { $0.width < $1.width }) {
-                        urlString = largest.url
-                    }
-                }
-                if urlString == nil {
-                    if let src = try? element.attr("src"), !src.isEmpty {
-                        urlString = src
-                    } else if let dataSrc = try? element.attr("data-src"), !dataSrc.isEmpty {
-                        urlString = dataSrc
-                    }
-                }
-                if let u = urlString, let abs = absoluteURL(u, base: baseURL) {
-                    urls.append(abs)
-                }
-            }
-            return urls
-        } catch {
-            return []
-        }
+        return (try? doc.select(selector).first()?.text())?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
     }
 
     // MARK: - Navigation
 
     private func nextLink(in doc: Document, selector: String, baseURL: URL) -> URL? {
         guard !selector.isEmpty else { return nil }
-        do {
-            if let el = try doc.select(selector).first() {
-                if let href = try? el.attr("href"), let url = absoluteURL(href, base: baseURL) {
-                    return url
-                }
-            }
-        } catch { }
+        if let href = try? doc.select(selector).first()?.attr("href") {
+            return absoluteURL(href, base: baseURL)
+        }
         return nil
     }
 
@@ -482,7 +432,7 @@ struct ComicDownloader {
                 }
                 lastError = error
                 if attempt < attempts - 1 {
-                    try? await Task.sleep(nanoseconds: UInt64(200_000_000 * (attempt + 1)))
+                    try? await Task.sleep(for: .milliseconds(200 * (attempt + 1)))
                 }
             }
         }
@@ -494,4 +444,8 @@ struct ComicDownloader {
         guard !visited.contains(next.absoluteString) else { return nil }
         return next
     }
+}
+
+extension String {
+    fileprivate var nilIfEmpty: String? { self.isEmpty ? nil : self }
 }
