@@ -80,19 +80,14 @@ struct ComicGrid: View {
         ComicTile(comic: comic,
                   isSelected: selectedComic == comic)
             .contentShape(Rectangle())
-            .highPriorityGesture(
-                TapGesture(count: 2)
-                    .exclusively(before: TapGesture(count: 1))
-                    .onEnded { result in
-                        switch result {
-                        case .first:
-                            onOpenPages?(comic)
-                        case .second:
-                            selectedComic = comic
-                        }
+            .simultaneousGesture(
+                TapGesture(count: 1)
+                    .onEnded {
+                        selectedComic = comic
                     }
             )
             .contextMenu {
+                Button { onOpenPages?(comic) } label: { Label("Pages", systemImage: "square.grid.3x3") }
                 Button { onEdit?(comic) } label: { Label("Edit", systemImage: "pencil") }
                 Divider()
                 Button { onFetch?(comic) } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
