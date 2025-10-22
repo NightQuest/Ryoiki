@@ -5,12 +5,12 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Comic.name) private var comics: [Comic]
     @Binding var isEditingComic: Bool
+    @Binding var isDisplayingComicPages: Bool
     @Binding var externalSelectedComic: Comic?
     @Binding var displayInspector: Bool
     @Binding var isInspectorAnimating: Bool
     @AppStorage("library.itemsPerRow") private var itemsPerRowPreference: Int = 6
     @State private var viewModel = LibraryViewModel()
-    @State private var showPages: Bool = false
     @State private var pagesComic: Comic?
 
     @ViewBuilder
@@ -48,7 +48,8 @@ struct LibraryView: View {
                     externalSelectedComic = comic
                     if hasDownloadedPages(for: comic) {
                         pagesComic = comic
-                        showPages = true
+                        isDisplayingComicPages = true
+                        displayInspector = false
                     }
                 }
             )
@@ -105,7 +106,7 @@ struct LibraryView: View {
 
             Button {
                 pagesComic = externalSelectedComic
-                showPages = true
+                isDisplayingComicPages = true
             } label: {
                 Label("Pages", systemImage: "square.grid.3x3")
             }
@@ -130,11 +131,6 @@ struct LibraryView: View {
         NavigationStack {
             LibraryContent
                 .toolbar { toolbarContent }
-                .onChange(of: showPages) { _, newValue in
-                    if newValue {
-                        displayInspector = false
-                    }
-                }
                 .navigationDestination(isPresented: $viewModel.isAddingComic) {
                     ComicEditorView { input in
                         viewModel.addComic(input: input, context: context)
@@ -150,10 +146,9 @@ struct LibraryView: View {
                         ComicEditorView { _ in }
                     }
                 }
-                .navigationDestination(isPresented: $showPages) {
+                .navigationDestination(isPresented: $isDisplayingComicPages) {
                     if let comic = pagesComic {
                         ComicPagesView(comic: comic)
-                            .onAppear { displayInspector = false }
                     } else {
                         ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
                     }

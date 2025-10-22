@@ -6,19 +6,21 @@ struct AppRootView: View {
     @State private var displayInspector: Bool = false
     @State private var isInspectorAnimating: Bool = false
     @State private var isEditingComic: Bool = false
+    @State private var isDisplayingComicPages: Bool = false
 
     var body: some View {
         ZStack {
             LibraryView(isEditingComic: $isEditingComic,
+                        isDisplayingComicPages: $isDisplayingComicPages,
                         externalSelectedComic: $selectedComic,
                         displayInspector: $displayInspector,
                         isInspectorAnimating: $isInspectorAnimating)
         }
         .inspector(isPresented: Binding<Bool>(
-            get: { displayInspector && !isEditingComic },
+            get: { displayInspector && !isEditingComic && !isDisplayingComicPages },
             set: { newValue in displayInspector = newValue }
         )) {
-            if let comic = selectedComic {
+            if let comic = selectedComic, !isEditingComic && !isDisplayingComicPages {
                 ComicDetailView(comic: comic, onClose: { selectedComic = nil })
             }
         }
@@ -29,7 +31,7 @@ struct AppRootView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 isInspectorAnimating = false
             }
-            if !newValue && !isEditingComic { selectedComic = nil }
+            if !newValue && !isEditingComic && !isDisplayingComicPages { selectedComic = nil }
         }
         .onChange(of: selectedComic) { _, newValue in
             if !isEditingComic {
@@ -38,6 +40,11 @@ struct AppRootView: View {
         }
         .onChange(of: isEditingComic) { _, editing in
             if !editing {
+                displayInspector = selectedComic != nil
+            }
+        }
+        .onChange(of: isDisplayingComicPages) { _, viewing in
+            if !viewing {
                 displayInspector = selectedComic != nil
             }
         }
