@@ -51,7 +51,11 @@ struct ComicPagesView: View {
                                     )
                                     // Plain click: replace selection with this item
                                     .onTapGesture {
-                                        model.replaceSelection(with: page.id)
+                                        if model.selection == [page.id] {
+                                            model.toggleSelection(page.id)
+                                        } else {
+                                            model.replaceSelection(with: page.id)
+                                        }
                                     }
                                     .anchorPreference(key: TileFramesPreferenceKey.self, value: .bounds) { anchor in
                                         [page.id: anchor]
