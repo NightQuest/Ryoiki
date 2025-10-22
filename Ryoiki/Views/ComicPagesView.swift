@@ -1,7 +1,6 @@
 import SwiftUI
 import SwiftData
 import CoreGraphics
-import ImageIO
 import Observation
 
 struct ComicPagesView: View {
@@ -195,23 +194,15 @@ private struct TileFramesPreferenceKey: PreferenceKey {
 private struct PageTile: View {
     let page: ComicPage
     let isSelected: Bool
-    @State private var cachedImage: Image?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack {
                 RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous)
                     .fill(.quinary.opacity(0.4))
-                if let image = cachedImage {
-                    image
-                        .resizable()
-                        .scaledToFit()
+                if let url = page.downloadedFileURL {
+                    ThumbnailImage(url: url, maxPixel: 512)
                         .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))
-                } else if page.downloadedFileURL != nil {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.secondary)
-                        .task { await loadTileImage() }
                 } else {
                     Image(systemName: "photo")
                         .resizable()
@@ -254,30 +245,5 @@ private struct PageTile: View {
             RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous)
                 .stroke(.quaternary, lineWidth: 1)
         )
-    }
-
-    private func loadTileImage() async {
-        guard let url = page.downloadedFileURL else { return }
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let maxPixel: CGFloat = 512 // tile thumbnail size
-                let options: [CFString: Any] = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: Int(maxPixel),
-                    kCGImageSourceCreateThumbnailWithTransform: true
-                ]
-                let loaded: Image? = {
-                    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                          let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                        return nil
-                    }
-                    return Image(decorative: cgThumb, scale: 1, orientation: .up)
-                }()
-                DispatchQueue.main.async {
-                    self.cachedImage = loaded
-                    continuation.resume()
-                }
-            }
-        }
     }
 }

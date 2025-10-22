@@ -53,4 +53,3 @@ struct ComicTile: View {
         }
     }
 }
-

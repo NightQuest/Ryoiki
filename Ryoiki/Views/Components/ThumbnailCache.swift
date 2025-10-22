@@ -44,33 +44,3 @@ final class ThumbnailCache {
         }
     }
 }
-
-// A small SwiftUI view that loads and displays a cached thumbnail for a local file URL.
-struct ThumbnailImage: View {
-    let url: URL?
-    let maxPixel: CGFloat
-
-    @State private var image: Image?
-
-    var body: some View {
-        ZStack {
-            if let image {
-                image
-                    .resizable()
-                    .scaledToFit()
-            } else {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.secondary)
-                    .task(id: url) { await load() }
-            }
-        }
-        .drawingGroup(opaque: false, colorMode: .extendedLinear)
-    }
-
-    @MainActor
-    private func load() async {
-        guard let url else { return }
-        image = await ThumbnailCache.shared.image(for: url, maxPixel: maxPixel)
-    }
-}
