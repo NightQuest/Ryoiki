@@ -5,9 +5,17 @@
 //  Created by Stardust on 2025-10-21.
 //
 
+import Foundation
+
 extension String {
     /// Returns `nil` when the string is empty, otherwise returns `self`.
     var nilIfEmpty: String? {
         isEmpty ? nil : self
+    }
+
+    /// Returns `nil` when the string is empty after trimming whitespace/newlines; otherwise returns the trimmed string.
+    var trimmedNilIfEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

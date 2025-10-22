@@ -9,7 +9,6 @@ import Foundation
 import SwiftSoup
 import SwiftData
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ComicDownloader: Sendable {
     enum Error: Swift.Error {
@@ -28,14 +27,18 @@ struct ComicDownloader: Sendable {
 
     // MARK: - Networking
 
-    private func makeRequest(url: URL, method: String, referer: URL?) async throws -> (Data, HTTPURLResponse) {
+    private func makeRequest(url: URL, method: String, referer: URL?) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         if let referer = referer {
             request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer")
         }
+        return request
+    }
 
+    private func request(url: URL, method: String, referer: URL?) async throws -> (Data, HTTPURLResponse) {
+        let request = makeRequest(url: url, method: method, referer: referer)
         do {
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -50,18 +53,12 @@ struct ComicDownloader: Sendable {
     /// Maps any thrown error into a `ComicDownloader.Error`, preserving cancellation semantics.
     private func mapNetworkError(_ error: Swift.Error) -> ComicDownloader.Error {
         if error is CancellationError { return .cancelled }
-        if let urlError = error as? URLError, urlError.code == .cancelled { return .cancelled }
         return .network(error)
     }
 
     /// Downloads a resource to a temporary file using URLSession.download(for:), applying headers.
     private func downloadToTemp(url: URL, referer: URL?) async throws -> (URL, HTTPURLResponse) {
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        if let referer = referer {
-            request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer")
-        }
+        let request = makeRequest(url: url, method: "GET", referer: referer)
         do {
             let (tempURL, response) = try await session.download(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -76,7 +73,7 @@ struct ComicDownloader: Sendable {
     /// Loads an HTML document as a UTF-8 string using a GET request, applying the configured User-Agent and optional Referer.
     func html(from url: URL, referer: URL? = nil) async throws -> String {
         do {
-            let (data, response) = try await makeRequest(url: url, method: "GET", referer: referer)
+            let (data, response) = try await request(url: url, method: "GET", referer: referer)
             guard (200..<300).contains(response.statusCode) else {
                 throw Error.badStatus(response.statusCode)
             }
@@ -95,7 +92,7 @@ struct ComicDownloader: Sendable {
     /// Performs a HEAD request and returns the status code and Content-Type header if present.
     func head(_ url: URL, referer: URL? = nil) async throws -> (status: Int, contentType: String?) {
         do {
-            let (_, response) = try await makeRequest(url: url, method: "HEAD", referer: referer)
+            let (_, response) = try await request(url: url, method: "HEAD", referer: referer)
             let contentType = response.value(forHTTPHeaderField: "Content-Type")
             return (response.statusCode, contentType)
         } catch let scraperError as ComicDownloader.Error {
@@ -109,7 +106,7 @@ struct ComicDownloader: Sendable {
     /// Loads raw data using a GET request, applying the configured User-Agent and optional Referer.
     func getData(_ url: URL, referer: URL? = nil) async throws -> Data {
         do {
-            let (data, response) = try await makeRequest(url: url, method: "GET", referer: referer)
+            let (data, response) = try await request(url: url, method: "GET", referer: referer)
             guard (200..<300).contains(response.statusCode) else {
                 throw Error.badStatus(response.statusCode)
             }
@@ -124,19 +121,14 @@ struct ComicDownloader: Sendable {
 
     // MARK: - URL Utilities
 
-    private func absoluteURL(_ string: String, base: URL) -> URL? {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        return URL(string: trimmed, relativeTo: base)?.absoluteURL
-    }
-
     func fetchPages(
         for comic: Comic,
         context: ModelContext,
         maxPages: Int? = nil
     ) async throws -> Int {
         let firstPage = comic.pages.last?.pageURL ?? comic.firstPageURL
-        guard let firstPageURL = URL(string: firstPage
-            .trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        guard let firstPageTrimmed = firstPage.trimmedNilIfEmpty,
+              let firstPageURL = URL(string: firstPageTrimmed) else {
             throw Error.invalidBaseURL
         }
         let selectorNext = comic.selectorNext
@@ -193,7 +185,7 @@ struct ComicDownloader: Sendable {
             previousURL = currentURL
 
             if let maxPages, pagesAdded >= maxPages { break }
-            if let next = advance(from: currentURL, using: doc, selectorNext: selectorNext, visited: visitedURLs) {
+            if let next = nextLink(in: doc, selector: selectorNext, baseURL: currentURL), !visitedURLs.contains(next.absoluteString) {
                 currentURL = next
             } else {
                 break
@@ -203,13 +195,15 @@ struct ComicDownloader: Sendable {
         return pagesAdded
     }
 
-    @MainActor
+    // Heavy I/O is performed off-main; model writes hop to main actor.
     func downloadImages(
         for comic: Comic,
         to folder: URL,
         context: ModelContext,
         overwrite: Bool = false
     ) async throws -> Int {
+        // This method interacts with UI-bound model properties (@MainActor).
+        // Heavy file IO occurs here; consider off-main-thread execution in future for performance.
         let fileManager = FileManager.default
         let comicFolder = folder.appendingPathComponent(sanitizeFilename(comic.name))
 
@@ -248,19 +242,51 @@ struct ComicDownloader: Sendable {
 
         var filesWritten = 0
 
-        for page in availablePages {
-            let baseIndex = baseIndexByURL[page.pageURL] ?? page.index
-            let groupCount = groupCountByURL[page.pageURL] ?? 1
-            let compositeKey = "\(page.pageURL)|\(page.imageURL)"
-            let subNumber = positionByCompositeKey[compositeKey]
-            let naming = PageNamingContext(baseIndex: baseIndex, groupCount: groupCount, subNumber: subNumber)
-            if try await handlePageDownload(
-                page: page,
-                comicFolder: comicFolder,
-                overwrite: overwrite,
-                naming: naming
-            ) {
-                filesWritten += 1
+        let maxConcurrent = 6 // Be nice to remote servers
+
+        // Parallelize downloads with limited concurrency. Model writes hop to MainActor in handlePageDownload.
+        try await withThrowingTaskGroup(of: Bool.self) { group in
+            var iterator = availablePages.makeIterator()
+
+            // Seed initial tasks up to the concurrency limit
+            for _ in 0..<min(maxConcurrent, availablePages.count) {
+                guard let page = iterator.next() else { break }
+                let baseIndex = baseIndexByURL[page.pageURL] ?? page.index
+                let groupCount = groupCountByURL[page.pageURL] ?? 1
+                let compositeKey = "\(page.pageURL)|\(page.imageURL)"
+                let subNumber = positionByCompositeKey[compositeKey]
+                let naming = PageNamingContext(baseIndex: baseIndex, groupCount: groupCount, subNumber: subNumber)
+
+                group.addTask {
+                    try await handlePageDownload(
+                        page: page,
+                        comicFolder: comicFolder,
+                        overwrite: overwrite,
+                        naming: naming
+                    )
+                }
+            }
+
+            // For each finished task, enqueue the next page, maintaining the concurrency window
+            while let wrote = try await group.next() {
+                if wrote { filesWritten += 1 }
+
+                if let page = iterator.next() {
+                    let baseIndex = baseIndexByURL[page.pageURL] ?? page.index
+                    let groupCount = groupCountByURL[page.pageURL] ?? 1
+                    let compositeKey = "\(page.pageURL)|\(page.imageURL)"
+                    let subNumber = positionByCompositeKey[compositeKey]
+                    let naming = PageNamingContext(baseIndex: baseIndex, groupCount: groupCount, subNumber: subNumber)
+
+                    group.addTask {
+                        try await handlePageDownload(
+                            page: page,
+                            comicFolder: comicFolder,
+                            overwrite: overwrite,
+                            naming: naming
+                        )
+                    }
+                }
             }
         }
 
@@ -273,7 +299,7 @@ struct ComicDownloader: Sendable {
         let subNumber: Int?
     }
 
-    @MainActor
+    // This updates model properties; must be on main actor, but now called off-main.
     private func handlePageDownload(page: ComicPage, comicFolder: URL, overwrite: Bool, naming: PageNamingContext) async throws -> Bool {
         let fileManager = FileManager.default
 
@@ -298,7 +324,9 @@ struct ComicDownloader: Sendable {
             }
 
             try data.write(to: fileURL, options: .atomic)
-            page.downloadPath = fileURL.absoluteString
+            await MainActor.run {
+                page.downloadPath = fileURL.absoluteString
+            }
             return true
         }
 
@@ -326,59 +354,16 @@ struct ComicDownloader: Sendable {
         }
 
         try fileManager.moveItem(at: tempURL, to: fileURL)
-        page.downloadPath = fileURL.absoluteString
+        await MainActor.run {
+            page.downloadPath = fileURL.absoluteString
+        }
         return true
-    }
-
-    private func fileExtension(contentType: String?, urlExtension: String?, fallback: String) -> String {
-        if let contentType, let type = UTType(mimeType: contentType), let ext = type.preferredFilenameExtension {
-            return ext
-        }
-        if let urlExtension, !urlExtension.isEmpty { return urlExtension }
-        return fallback
-    }
-
-    private func sanitizeFilename(_ filename: String) -> String {
-        let illegalFileNameCharacters = CharacterSet(charactersIn: "/\\?%*|\"<>:")
-        let components = filename.components(separatedBy: illegalFileNameCharacters)
-        let sanitized = components.joined()
-        return sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func decodeDataURL(_ urlString: String) -> (mediatype: String, data: Data)? {
-        // data:[<mediatype>][;base64],<data>
-        guard urlString.hasPrefix("data:") else {
-            return nil
-        }
-        guard let commaIndex = urlString.firstIndex(of: ",") else {
-            return nil
-        }
-
-        let meta = String(urlString[urlString.index(urlString.startIndex, offsetBy: 5)..<commaIndex]) // skip "data:"
-        let dataPart = String(urlString[urlString.index(after: commaIndex)...])
-
-        let isBase64 = meta.contains(";base64")
-        let mediatype = meta.components(separatedBy: ";").first ?? "application/octet-stream"
-
-        if isBase64 {
-            guard let data = Data(base64Encoded: dataPart) else {
-                return nil
-            }
-            return (mediatype, data)
-        } else {
-            guard let decoded = dataPart.removingPercentEncoding,
-                  let data = decoded.data(using: .utf8) else {
-                return nil
-            }
-            return (mediatype, data)
-        }
     }
 
     private func parseTitle(in doc: Document, selector: String) -> String? {
         guard !selector.isEmpty else { return nil }
         return (try? doc.select(selector).first()?.text())?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty
+            .trimmedNilIfEmpty
     }
 
     // MARK: - Navigation
@@ -386,7 +371,7 @@ struct ComicDownloader: Sendable {
     private func nextLink(in doc: Document, selector: String, baseURL: URL) -> URL? {
         guard !selector.isEmpty else { return nil }
         if let href = try? doc.select(selector).first()?.attr("href") {
-            return absoluteURL(href, base: baseURL)
+            return resolveURL(href, base: baseURL)
         }
         return nil
     }
@@ -407,7 +392,7 @@ struct ComicDownloader: Sendable {
         let newStartingIndex: Int
     }
 
-    @MainActor
+    @MainActor // Inserts pages and mutates model context; must be on main actor.
     private func insertPages(from imageURLs: [URL],
                              insertion: InsertionContext,
                              context: ModelContext) throws -> InsertionResult {

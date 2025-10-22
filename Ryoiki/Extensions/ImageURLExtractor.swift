@@ -1,6 +1,13 @@
 import Foundation
 import SwiftSoup
 
+/// Resolve a possibly relative URL string against an optional base, after trimming whitespace/newlines.
+/// If `base` is nil, returns `URL(string:)` which may be relative; callers may prefer absolute URLs.
+@inline(__always)
+func resolveURL(_ string: String, base: URL?) -> URL? {
+    _absoluteURL(string, base: base)
+}
+
 private let _imageURLAttributeNames: [String] = [
     "data-orig-file", "data-image", "data-lazy-src", "data-original",
     "data-zoom-image", "data-large_image", "data-hires", "data-src", "src"
