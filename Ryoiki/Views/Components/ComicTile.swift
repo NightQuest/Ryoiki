@@ -5,27 +5,23 @@ struct ComicTile: View {
     let comic: Comic
     let isSelected: Bool
 
-    var coverImage: some View {
-        let firstPage = comic.pages.first
-        return AsyncImage(url: URL(string: firstPage?.downloadPath ?? "")) { result in
-            result.image?
-                .resizable()
-                .scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius))
-        }
-    }
-
     var body: some View {
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 8) {
                 ZStack {
                     RoundedRectangle(cornerRadius: Layout.cornerRadius)
                         .fill(.quaternary)
-                    ZStack {
-                        Image(systemName: "photo")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.secondary)
-                        coverImage
+                    AsyncImage(url: URL(string: comic.pages.first?.downloadPath ?? "")) { phase in
+                        if let image = phase.image {
+                            image
+                                .resizable()
+                                .scaledToFit()
+                                .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius))
+                        } else {
+                            Image(systemName: "photo")
+                                .font(.system(size: 36))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .aspectRatio(contentMode: .fit)
