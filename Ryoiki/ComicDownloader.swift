@@ -36,9 +36,7 @@ struct ComicDownloader: Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        if let referer = referer {
-            request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer")
-        }
+        if let referer { request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer") }
         return request
     }
 
@@ -48,7 +46,7 @@ struct ComicDownloader: Sendable {
         do {
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                throw Error.network(NSError(domain: "Invalid response", code: 0))
+                throw Error.network(URLError(.badServerResponse))
             }
             return (data, httpResponse)
         } catch {
@@ -69,7 +67,7 @@ struct ComicDownloader: Sendable {
         do {
             let (tempURL, response) = try await session.download(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                throw Error.network(NSError(domain: "Invalid response", code: 0))
+                throw Error.network(URLError(.badServerResponse))
             }
             return (tempURL, httpResponse)
         } catch {
@@ -85,7 +83,7 @@ struct ComicDownloader: Sendable {
                 throw Error.badStatus(response.statusCode)
             }
             guard let html = String(data: data, encoding: .utf8) else {
-                throw Error.parse
+                throw Error.parse // keep domain-specific error, but decoding failed
             }
             return html
         } catch let scraperError as ComicDownloader.Error {
@@ -126,18 +124,22 @@ struct ComicDownloader: Sendable {
         }
     }
 
-    // MARK: - URL Utilities
-
+    // swiftlint:disable:next cyclomatic_complexity
     func fetchPages(
         for comic: Comic,
         context: ModelContext,
         maxPages: Int? = nil
     ) async throws -> Int {
-        let firstPage = comic.pages.last?.pageURL ?? comic.firstPageURL
-        guard let firstPageTrimmed = firstPage.trimmedNilIfEmpty,
-              let firstPageURL = URL(string: firstPageTrimmed) else {
-            throw Error.invalidBaseURL
+        // Snapshot model-derived values that require main-actor access once up front
+        let firstPageURL: URL = try await MainActor.run { () -> URL in
+            let firstPage = comic.pages.last?.pageURL ?? comic.firstPageURL
+            guard let firstPageTrimmed = firstPage.trimmedNilIfEmpty,
+                  let url = URL(string: firstPageTrimmed) else {
+                throw Error.invalidBaseURL
+            }
+            return url
         }
+
         let selectorNext = comic.selectorNext
         let selectorImage = comic.selectorImage
         let selectorTitle = comic.selectorTitle
@@ -146,60 +148,116 @@ struct ComicDownloader: Sendable {
             throw Error.missingSelector("selectorImage")
         }
 
+        // Build a fast lookup of existing (pageURL|imageURL) pairs to avoid O(n) scans on main actor
+        var existingPairKeys: Set<String> = await MainActor.run {
+            Set(comic.pages.map { "\($0.pageURL)|\($0.imageURL)" })
+        }
+
+        // Find current maximum index in existing pages (main-actor snapshot once)
+        var currentMaxIndex: Int = await MainActor.run {
+            comic.pages.max(by: { $0.index < $1.index })?.index ?? -1
+        }
+
         var visitedURLs = Set<String>()
         var pagesAdded = 0
-
-        // Find current maximum index in existing pages
-        let existingPages = comic.pages.sorted { $0.index < $1.index }
-        var currentMaxIndex = existingPages.last?.index ?? -1
 
         var currentURL = firstPageURL
         var previousURL: URL?
 
-        while true {
-            try Task.checkCancellation()
-            if let maxPages, pagesAdded >= maxPages { break }
-            guard !visitedURLs.contains(currentURL.absoluteString) else { break }
-            visitedURLs.insert(currentURL.absoluteString)
+        var pendingPages: [CDTypes.PageSpec] = []
 
-            let htmlString = try await fetchHTMLWithRetry(from: currentURL, referer: previousURL)
+        var preparedSinceLastCommit = 0
+        let commitThreshold = 5 // commit every N prepared pages
 
-            let doc: Document
-            do {
-                doc = try SwiftSoup.parse(htmlString, currentURL.absoluteString)
-            } catch {
-                throw Error.parse
-            }
-
-            let titleText = parseTitle(in: doc, selector: selectorTitle)
-            let imageURLs = doc.imageURLs(selector: selectorImage, baseURL: currentURL)
-
-            guard !imageURLs.isEmpty else { break }
-
-            let insertion = InsertionContext(comic: comic,
-                                             currentURL: currentURL,
-                                             startingIndex: currentMaxIndex,
-                                             titleText: titleText,
-                                             maxPages: maxPages.map { $0 - pagesAdded })
-
-            let result = try insertPages(from: imageURLs,
-                                         insertion: insertion,
-                                         context: context)
-            pagesAdded += result.inserted
-            currentMaxIndex = result.newStartingIndex
-            if result.didReachMax { break }
-
-            previousURL = currentURL
-
-            if let maxPages, pagesAdded >= maxPages { break }
-            if let next = nextLink(in: doc, selector: selectorNext, baseURL: currentURL), !visitedURLs.contains(next.absoluteString) {
-                currentURL = next
-            } else {
-                break
+        // Local helper to commit prepared pages so UI/badges update
+        func finalize() async throws {
+            if !pendingPages.isEmpty {
+                try await MainActor.run {
+                    for spec in pendingPages {
+                        let page = ComicPage(
+                            comic: comic,
+                            index: spec.index,
+                            title: spec.title,
+                            pageURL: spec.pageURL,
+                            imageURL: spec.imageURL
+                        )
+                        context.insert(page)
+                    }
+                    try context.save()
+                }
+                pendingPages.removeAll()
+                preparedSinceLastCommit = 0
             }
         }
 
-        return pagesAdded
+        do {
+            while true {
+                if Task.isCancelled {
+                    try await finalize()
+                    throw CancellationError()
+                }
+                if let maxPages, pagesAdded >= maxPages { break }
+                guard visitedURLs.insert(currentURL.absoluteString).inserted else { break }
+
+                let parsed = try await fetchAndParse(
+                    url: currentURL,
+                    referer: previousURL,
+                    selectorTitle: selectorTitle,
+                    selectorImage: selectorImage
+                )
+
+                guard !parsed.imageURLs.isEmpty else { break }
+
+                let prep: CDTypes.PreparationResult = try await MainActor.run {
+                    let input = CDTypes.PreparationInput(
+                        currentPageURL: currentURL,
+                        startingIndex: currentMaxIndex,
+                        titleText: parsed.title,
+                        maxPages: maxPages.map { $0 - pagesAdded },
+                        existingPairKeys: existingPairKeys
+                    )
+                    return try preparePagesWithoutInserting(
+                        from: parsed.imageURLs,
+                        input: input
+                    )
+                }
+                existingPairKeys = prep.updatedKeys
+                pendingPages.append(contentsOf: prep.prepared)
+
+                pagesAdded += prep.result.inserted
+                currentMaxIndex = prep.result.newStartingIndex
+                if prep.result.didReachMax { break }
+
+                // Throttled mid-fetch commit to show progress without badge churn
+                preparedSinceLastCommit += prep.prepared.count
+                if preparedSinceLastCommit >= commitThreshold {
+                    try await finalize()
+                    // yield to keep UI responsive
+                    await Task.yield()
+                }
+
+                previousURL = currentURL
+
+                if let maxPages, pagesAdded >= maxPages { break }
+                if let next = advance(from: currentURL, using: parsed.doc, selectorNext: selectorNext, visited: visitedURLs) {
+                    currentURL = next
+                } else {
+                    break
+                }
+            }
+
+            // Normal completion: commit prepared pages so badges/UI update once
+            try await finalize()
+            return pagesAdded
+        } catch {
+            // On cancellation, commit whatever we prepared so far, then rethrow
+            if error is CancellationError {
+                try await finalize()
+            } else if let e = error as? ComicDownloader.Error, case .cancelled = e {
+                try await finalize()
+            }
+            throw error
+        }
     }
 
     // Heavy I/O is performed off-main; model writes hop to main actor.
@@ -367,12 +425,6 @@ struct ComicDownloader: Sendable {
         return true
     }
 
-    private func parseTitle(in doc: Document, selector: String) -> String? {
-        guard !selector.isEmpty else { return nil }
-        return (try? doc.select(selector).first()?.text())?
-            .trimmedNilIfEmpty
-    }
-
     // MARK: - Navigation
 
     private func nextLink(in doc: Document, selector: String, baseURL: URL) -> URL? {
@@ -381,51 +433,6 @@ struct ComicDownloader: Sendable {
             return resolveURL(href, base: baseURL)
         }
         return nil
-    }
-
-    // MARK: - Insertion
-
-    private struct InsertionContext {
-        let comic: Comic
-        let currentURL: URL
-        let startingIndex: Int
-        let titleText: String?
-        let maxPages: Int?
-    }
-
-    private struct InsertionResult {
-        let inserted: Int
-        let didReachMax: Bool
-        let newStartingIndex: Int
-    }
-
-    @MainActor // Inserts pages and mutates model context; must be on main actor.
-    private func insertPages(from imageURLs: [URL],
-                             insertion: InsertionContext,
-                             context: ModelContext) throws -> InsertionResult {
-        var inserted = 0
-        var startingIndex = insertion.startingIndex
-        for imageURL in imageURLs where !insertion.comic.pages.contains(where: {
-            $0.pageURL == insertion.currentURL.absoluteString &&
-            $0.imageURL == imageURL.absoluteString
-        }) {
-            startingIndex += 1
-            let page = ComicPage(
-                comic: insertion.comic,
-                index: startingIndex,
-                title: insertion.titleText ?? "",
-                pageURL: insertion.currentURL.absoluteString,
-                imageURL: imageURL.absoluteString
-            )
-            context.insert(page)
-            inserted += 1
-            if let maxPages = insertion.maxPages, inserted >= maxPages {
-                try context.save()
-                return InsertionResult(inserted: inserted, didReachMax: true, newStartingIndex: startingIndex)
-            }
-        }
-        if inserted > 0 { try context.save() }
-        return InsertionResult(inserted: inserted, didReachMax: false, newStartingIndex: startingIndex)
     }
 
     // MARK: - Retry
