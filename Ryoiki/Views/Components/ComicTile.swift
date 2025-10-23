@@ -4,6 +4,17 @@ import SwiftUI
 struct ComicTile: View {
     let comic: Comic
     let isSelected: Bool
+    let isFetching: Bool
+    let isUpdating: Bool
+    let overridePageCount: Int?
+
+    init(comic: Comic, isSelected: Bool, showBadge: Bool = true, isFetching: Bool = false, isUpdating: Bool = false, overridePageCount: Int? = nil) {
+        self.comic = comic
+        self.isSelected = isSelected
+        self.isFetching = isFetching
+        self.isUpdating = isUpdating
+        self.overridePageCount = overridePageCount
+    }
 
     private var subtitleText: String {
         if !comic.author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -77,13 +88,29 @@ struct ComicTile: View {
 
             // Custom badge (page count)
             if !comic.pages.isEmpty {
-                Text("\(comic.pages.count)")
+                Text("\(overridePageCount ?? comic.pages.count)")
                     .font(.caption2).bold()
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
                     .background(.red, in: Capsule())
                     .foregroundStyle(.white)
                     .padding(6)
+            }
+
+            if isFetching || isUpdating {
+                VStack(spacing: 6) {
+                    ProgressView()
+                    Text(isUpdating ? "Updating…" : "Fetching…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(.quaternary, lineWidth: 1))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .transition(.opacity.combined(with: .scale))
+                .animation(.default, value: isFetching)
             }
         }
     }

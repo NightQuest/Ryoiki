@@ -30,6 +30,10 @@ struct LibraryView: View {
                 selectedComic: $externalSelectedComic,
                 isInspectorAnimating: $isInspectorAnimating,
                 itemsPerRowPreference: itemsPerRowPreference,
+                showBadges: true,
+                fetchingComicIDs: viewModel.fetchingComicIDs,
+                updatingComicIDs: viewModel.updatingComicIDs,
+                frozenBadgeCounts: viewModel.frozenBadgeCounts,
                 onEdit: { comic in
                     externalSelectedComic = comic
                     isEditingComic = true
@@ -78,28 +82,36 @@ struct LibraryView: View {
 
             Button {
                 if let comic = externalSelectedComic {
-                    if !viewModel.isFetching {
+                    if !viewModel.isFetching(comic: comic) {
                         viewModel.fetch(comic: comic, context: context)
                     } else {
-                        viewModel.cancelFetch()
+                        viewModel.cancelFetch(for: comic)
                     }
                 }
             } label: {
-                if viewModel.isFetching { ProgressView() } else { Label("Fetch", systemImage: "tray.and.arrow.down") }
+                if let comic = externalSelectedComic, viewModel.isFetching(comic: comic) {
+                    Label("Cancel", systemImage: "xmark.circle")
+                } else {
+                    Label("Fetch", systemImage: "tray.and.arrow.down")
+                }
             }
             .disabled(externalSelectedComic == nil)
             .buttonStyle(.bordered)
 
             Button {
                 if let comic = externalSelectedComic {
-                    if !viewModel.isUpdating {
+                    if !viewModel.isUpdating(comic: comic) {
                         viewModel.update(comic: comic, context: context)
                     } else {
-                        viewModel.cancelUpdate()
+                        viewModel.cancelUpdate(for: comic)
                     }
                 }
             } label: {
-                if viewModel.isUpdating { ProgressView() } else { Label("Update", systemImage: "square.and.arrow.down") }
+                if let comic = externalSelectedComic, viewModel.isUpdating(comic: comic) {
+                    Label("Cancel", systemImage: "xmark.circle")
+                } else {
+                    Label("Update", systemImage: "square.and.arrow.down")
+                }
             }
             .disabled(externalSelectedComic == nil)
             .buttonStyle(.bordered)
@@ -130,29 +142,29 @@ struct LibraryView: View {
         @Bindable var viewModel = viewModel
         NavigationStack {
             LibraryContent
-                .toolbar { toolbarContent }
-                .navigationDestination(isPresented: $viewModel.isAddingComic) {
-                    ComicEditorView { input in
-                        viewModel.addComic(input: input, context: context)
-                    }
+            .toolbar { toolbarContent }
+            .navigationDestination(isPresented: $viewModel.isAddingComic) {
+                ComicEditorView { input in
+                    viewModel.addComic(input: input, context: context)
                 }
-                .navigationDestination(isPresented: $isEditingComic) {
-                    if let comic = externalSelectedComic {
-                        ComicEditorView(comicToEdit: comic) { input in
-                            viewModel.editComic(comic: comic, input: input, context: context)
-                        }
-                    } else {
-                        // Fallback if selection was lost; present empty editor (should not happen normally)
-                        ComicEditorView { _ in }
+            }
+            .navigationDestination(isPresented: $isEditingComic) {
+                if let comic = externalSelectedComic {
+                    ComicEditorView(comicToEdit: comic) { input in
+                        viewModel.editComic(comic: comic, input: input, context: context)
                     }
+                } else {
+                    // Fallback if selection was lost; present empty editor (should not happen normally)
+                    ComicEditorView { _ in }
                 }
-                .navigationDestination(isPresented: $isDisplayingComicPages) {
-                    if let comic = pagesComic {
-                        ComicPagesView(comic: comic)
-                    } else {
-                        ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
-                    }
+            }
+            .navigationDestination(isPresented: $isDisplayingComicPages) {
+                if let comic = pagesComic {
+                    ComicPagesView(comic: comic)
+                } else {
+                    ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
                 }
+            }
         }
     }
 

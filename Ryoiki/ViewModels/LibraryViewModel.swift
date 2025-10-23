@@ -6,20 +6,29 @@ import Observation
 @Observable @MainActor
 final class LibraryViewModel {
     var isAddingComic: Bool = false
-    var isFetching: Bool = false
-    var isUpdating: Bool = false
 
-    @ObservationIgnored private var fetchTask: Task<Void, Never>?
-    @ObservationIgnored private var updateTask: Task<Void, Never>?
+    @ObservationIgnored private var fetchTasks: [UUID: Task<Void, Never>] = [:]
+    var fetchingComicIDs: Set<UUID> = []
+    var frozenBadgeCounts: [UUID: Int] = [:]
+
+    @ObservationIgnored private var updateTasks: [UUID: Task<Void, Never>] = [:]
+    var updatingComicIDs: Set<UUID> = []
+    var isUpdating: Bool { !updatingComicIDs.isEmpty }
+
+    func isFetching(comic: Comic) -> Bool { fetchingComicIDs.contains(comic.id) }
+    func frozenCount(for comic: Comic) -> Int? { frozenBadgeCounts[comic.id] }
+    func isUpdating(comic: Comic) -> Bool { updatingComicIDs.contains(comic.id) }
 
     // Start fetching pages for a given comic
     func fetch(comic: Comic, context: ModelContext) {
-        guard !isFetching else { return }
-        isFetching = true
-        fetchTask = Task { @MainActor in
+        guard fetchTasks[comic.id] == nil else { return }
+        fetchingComicIDs.insert(comic.id)
+        frozenBadgeCounts[comic.id] = comic.pages.count
+        fetchTasks[comic.id] = Task { @MainActor in
             defer {
-                self.isFetching = false
-                self.fetchTask = nil
+                fetchingComicIDs.remove(comic.id)
+                frozenBadgeCounts[comic.id] = nil
+                fetchTasks[comic.id] = nil
             }
             let scraper = ComicDownloader()
             do {
@@ -34,19 +43,19 @@ final class LibraryViewModel {
         }
     }
 
-    // Cancel an in-flight fetch
-    func cancelFetch() {
-        fetchTask?.cancel()
+    // Cancel an in-flight fetch for a specific comic
+    func cancelFetch(for comic: Comic) {
+        fetchTasks[comic.id]?.cancel()
     }
 
     // Start updating (downloading) images for a given comic to the documents directory
     func update(comic: Comic, context: ModelContext) {
-        guard !isUpdating else { return }
-        isUpdating = true
-        updateTask = Task { @MainActor in
+        guard updateTasks[comic.id] == nil else { return }
+        updatingComicIDs.insert(comic.id)
+        updateTasks[comic.id] = Task { @MainActor in
             defer {
-                self.isUpdating = false
-                self.updateTask = nil
+                updatingComicIDs.remove(comic.id)
+                updateTasks[comic.id] = nil
             }
             let scraper = ComicDownloader()
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -62,9 +71,9 @@ final class LibraryViewModel {
         }
     }
 
-    // Cancel an in-flight update
-    func cancelUpdate() {
-        updateTask?.cancel()
+    // Cancel an in-flight update for a specific comic
+    func cancelUpdate(for comic: Comic) {
+        updateTasks[comic.id]?.cancel()
     }
 
     // Add a new comic using the editor input

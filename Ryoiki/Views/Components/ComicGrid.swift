@@ -6,6 +6,10 @@ struct ComicGrid: View {
     @Binding var selectedComic: Comic?
     @Binding var isInspectorAnimating: Bool
     let itemsPerRowPreference: Int
+    let showBadges: Bool
+    let fetchingComicIDs: Set<UUID>
+    let updatingComicIDs: Set<UUID>
+    let frozenBadgeCounts: [UUID: Int]
 
     let onEdit: ((Comic) -> Void)?
     let onFetch: ((Comic) -> Void)?
@@ -64,7 +68,10 @@ struct ComicGrid: View {
     @ViewBuilder
     private func gridItem(for comic: Comic) -> some View {
         ComicTile(comic: comic,
-                  isSelected: selectedComic == comic)
+                  isSelected: selectedComic == comic,
+                  isFetching: fetchingComicIDs.contains(comic.id),
+                  isUpdating: updatingComicIDs.contains(comic.id),
+                  overridePageCount: frozenBadgeCounts[comic.id])
             .contentShape(Rectangle())
             .simultaneousGesture(
                 TapGesture(count: 1)
