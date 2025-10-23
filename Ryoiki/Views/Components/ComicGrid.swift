@@ -44,8 +44,8 @@ struct ComicGrid: View {
             Button("Delete", role: .destructive) {
                 if let comic = comicPendingDelete {
                     let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                    let downloader = ComicDownloader()
-                    downloader.deleteDownloadFolder(for: comic, in: docs)
+                    let cm = ComicManager()
+                    cm.deleteDownloadFolder(for: comic, in: docs)
                     modelContext.delete(comic)
                     try? modelContext.save()
                     if selectedComic == comic { selectedComic = nil }

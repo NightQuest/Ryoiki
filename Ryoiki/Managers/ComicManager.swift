@@ -1,5 +1,5 @@
 //
-//  ComicDownloader.swift
+//  ComicManager.swift
 //  Ryoiki
 //
 //  Created by Stardust on 2025-10-21.
@@ -10,7 +10,7 @@ import SwiftSoup
 import SwiftData
 import SwiftUI
 
-struct ComicDownloader: Sendable {
+struct ComicManager: Sendable {
     private let rateLimiter: RateLimiter
 
     enum Error: Swift.Error {
@@ -54,8 +54,8 @@ struct ComicDownloader: Sendable {
         }
     }
 
-    /// Maps any thrown error into a `ComicDownloader.Error`, preserving cancellation semantics.
-    private func mapNetworkError(_ error: Swift.Error) -> ComicDownloader.Error {
+    /// Maps any thrown error into a `ComicManager.Error`, preserving cancellation semantics.
+    private func mapNetworkError(_ error: Swift.Error) -> ComicManager.Error {
         if error is CancellationError { return .cancelled }
         return .network(error)
     }
@@ -86,7 +86,7 @@ struct ComicDownloader: Sendable {
                 throw Error.parse // keep domain-specific error, but decoding failed
             }
             return html
-        } catch let scraperError as ComicDownloader.Error {
+        } catch let scraperError as ComicManager.Error {
             // Forward scraper errors as-is (including .cancelled)
             throw scraperError
         } catch {
@@ -100,7 +100,7 @@ struct ComicDownloader: Sendable {
             let (_, response) = try await request(url: url, method: "HEAD", referer: referer)
             let contentType = response.value(forHTTPHeaderField: "Content-Type")
             return (response.statusCode, contentType)
-        } catch let scraperError as ComicDownloader.Error {
+        } catch let scraperError as ComicManager.Error {
             // Forward scraper errors as-is (including .cancelled)
             throw scraperError
         } catch {
@@ -116,7 +116,7 @@ struct ComicDownloader: Sendable {
                 throw Error.badStatus(response.statusCode)
             }
             return data
-        } catch let scraperError as ComicDownloader.Error {
+        } catch let scraperError as ComicManager.Error {
             // Forward scraper errors as-is (including .cancelled)
             throw scraperError
         } catch {
@@ -164,7 +164,7 @@ struct ComicDownloader: Sendable {
         var currentURL = firstPageURL
         var previousURL: URL?
 
-        var pendingPages: [CDTypes.PageSpec] = []
+        var pendingPages: [CMTypes.PageSpec] = []
 
         var preparedSinceLastCommit = 0
         let commitThreshold = 5 // commit every N prepared pages
@@ -208,8 +208,8 @@ struct ComicDownloader: Sendable {
 
                 guard !parsed.imageURLs.isEmpty else { break }
 
-                let prep: CDTypes.PreparationResult = try await MainActor.run {
-                    let input = CDTypes.PreparationInput(
+                let prep: CMTypes.PreparationResult = try await MainActor.run {
+                    let input = CMTypes.PreparationInput(
                         currentPageURL: currentURL,
                         startingIndex: currentMaxIndex,
                         titleText: parsed.title,
@@ -253,7 +253,7 @@ struct ComicDownloader: Sendable {
             // On cancellation, commit whatever we prepared so far, then rethrow
             if error is CancellationError {
                 try await finalize()
-            } else if let e = error as? ComicDownloader.Error, case .cancelled = e {
+            } else if let e = error as? ComicManager.Error, case .cancelled = e {
                 try await finalize()
             }
             throw error
@@ -447,7 +447,7 @@ struct ComicDownloader: Sendable {
                 if error is CancellationError {
                     throw error
                 }
-                if let scraperError = error as? ComicDownloader.Error, case .cancelled = scraperError {
+                if let scraperError = error as? ComicManager.Error, case .cancelled = scraperError {
                     throw scraperError
                 }
                 lastError = error
@@ -456,7 +456,7 @@ struct ComicDownloader: Sendable {
                 }
             }
         }
-        throw lastError ?? ComicDownloader.Error.network(NSError(domain: "Unknown", code: -1))
+        throw lastError ?? ComicManager.Error.network(NSError(domain: "Unknown", code: -1))
     }
 
     private func advance(from current: URL, using doc: Document, selectorNext: String, visited: Set<String>) -> URL? {

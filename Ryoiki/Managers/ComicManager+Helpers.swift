@@ -6,7 +6,7 @@ private let defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) 
 
 // MARK: - Fetch & Parse
 
-func fetchAndParse(url: URL, referer: URL?, selectorTitle: String, selectorImage: String) async throws -> CDTypes.ParseResult {
+func fetchAndParse(url: URL, referer: URL?, selectorTitle: String, selectorImage: String) async throws -> CMTypes.ParseResult {
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
     request.setValue(defaultUserAgent, forHTTPHeaderField: "User-Agent")
@@ -26,14 +26,14 @@ func fetchAndParse(url: URL, referer: URL?, selectorTitle: String, selectorImage
     let title = parseTitle(in: doc, selector: selectorTitle)
     let imageURLs = doc.imageURLs(selector: selectorImage, baseURL: url)
 
-    return CDTypes.ParseResult(doc: doc, title: title, imageURLs: imageURLs)
+    return CMTypes.ParseResult(doc: doc, title: title, imageURLs: imageURLs)
 }
 
 // MARK: - Preparation (no inserts, main-actor for model-safety by caller convention)
 
 @MainActor
-func preparePagesWithoutInserting(from imageURLs: [URL], input: CDTypes.PreparationInput) throws -> CDTypes.PreparationResult {
-    var prepared: [CDTypes.PageSpec] = []
+func preparePagesWithoutInserting(from imageURLs: [URL], input: CMTypes.PreparationInput) throws -> CMTypes.PreparationResult {
+    var prepared: [CMTypes.PageSpec] = []
     var keys = input.existingPairKeys
     var inserted = 0
     var nextIndex = input.startingIndex
@@ -43,7 +43,7 @@ func preparePagesWithoutInserting(from imageURLs: [URL], input: CDTypes.Preparat
         if keys.contains(key) { continue }
 
         nextIndex += 1
-        let spec = CDTypes.PageSpec(
+        let spec = CMTypes.PageSpec(
             index: nextIndex,
             title: input.titleText ?? "",
             pageURL: input.currentPageURL.absoluteString,
@@ -54,13 +54,13 @@ func preparePagesWithoutInserting(from imageURLs: [URL], input: CDTypes.Preparat
         inserted += 1
 
         if let maxPages = input.maxPages, inserted >= maxPages {
-            let result = CDTypes.InsertionResult(inserted: inserted, didReachMax: true, newStartingIndex: nextIndex)
-            return CDTypes.PreparationResult(prepared: prepared, result: result, updatedKeys: keys)
+            let result = CMTypes.InsertionResult(inserted: inserted, didReachMax: true, newStartingIndex: nextIndex)
+            return CMTypes.PreparationResult(prepared: prepared, result: result, updatedKeys: keys)
         }
     }
 
-    let result = CDTypes.InsertionResult(inserted: inserted, didReachMax: false, newStartingIndex: nextIndex)
-    return CDTypes.PreparationResult(prepared: prepared, result: result, updatedKeys: keys)
+    let result = CMTypes.InsertionResult(inserted: inserted, didReachMax: false, newStartingIndex: nextIndex)
+    return CMTypes.PreparationResult(prepared: prepared, result: result, updatedKeys: keys)
 }
 
 // MARK: - Local helpers
@@ -71,23 +71,4 @@ private func parseTitle(in doc: Document, selector: String) -> String? {
     else { return nil }
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
-}
-
-private extension Document {
-    func imageURLs(selector: String, baseURL: URL) -> [URL] {
-        guard !selector.isEmpty else { return [] }
-        do {
-            let elements = try select(selector).array()
-            var seen = Set<String>()
-            return elements.compactMap { el -> URL? in
-                let src = (try? el.attr("src")) ?? ""
-                let dataSrc = (try? el.attr("data-src")) ?? ""
-                let candidate = !src.isEmpty ? src : (!dataSrc.isEmpty ? dataSrc : "")
-                guard !candidate.isEmpty, seen.insert(candidate).inserted else { return nil }
-                return URL(string: candidate, relativeTo: baseURL)?.absoluteURL
-            }
-        } catch {
-            return []
-        }
-    }
 }

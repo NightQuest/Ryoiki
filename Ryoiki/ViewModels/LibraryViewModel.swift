@@ -30,9 +30,9 @@ final class LibraryViewModel {
                 frozenBadgeCounts[comic.id] = nil
                 fetchTasks[comic.id] = nil
             }
-            let scraper = ComicDownloader()
+            let cm = ComicManager()
             do {
-                _ = try await scraper.fetchPages(for: comic, context: context)
+                _ = try await cm.fetchPages(for: comic, context: context)
             } catch is CancellationError {
                 // Fetch cancelled by user
             } catch let urlError as URLError where urlError.code == .cancelled {
@@ -57,10 +57,10 @@ final class LibraryViewModel {
                 updatingComicIDs.remove(comic.id)
                 updateTasks[comic.id] = nil
             }
-            let scraper = ComicDownloader()
+            let cm = ComicManager()
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
             do {
-                _ = try await scraper.downloadImages(for: comic, to: docs, context: context, overwrite: false)
+                _ = try await cm.downloadImages(for: comic, to: docs, context: context, overwrite: false)
             } catch is CancellationError {
                 // Update cancelled by user
             } catch let urlError as URLError where urlError.code == .cancelled {

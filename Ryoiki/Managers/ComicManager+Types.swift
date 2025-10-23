@@ -1,8 +1,8 @@
 import Foundation
 import SwiftSoup
 
-// Namespace for ComicDownloader helper types to avoid ambiguity
-enum CDTypes {
+// Namespace for ComicManager helper types to avoid ambiguity
+enum CMTypes {
     struct PageSpec: Sendable {
         let index: Int
         let title: String
