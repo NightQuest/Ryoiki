@@ -10,11 +10,24 @@ import SwiftData
 
 @main
 struct RyoikiApp: App {
+    let modelContainer: ModelContainer
+
+    init() {
+        do {
+            modelContainer = try ModelContainer(
+                for: Comic.self, ComicPage.self,
+                migrationPlan: ComicMigrationPlan.self
+            )
+        } catch {
+            fatalError("Failed to initialize model container.")
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             AppRootView()
         }
-        .modelContainer(for: [Comic.self, ComicPage.self])
+        .modelContainer(modelContainer)
         .windowToolbarStyle(.expanded)
         .windowToolbarLabelStyle(fixed: .titleAndIcon)
     }
