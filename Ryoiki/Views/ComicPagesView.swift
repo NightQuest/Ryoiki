@@ -6,7 +6,7 @@ import Observation
 struct ComicPagesView: View {
     let comic: Comic
 
-    @State private var model = ComicPagesSelectionModel()
+    @State private var selectionManager = SelectionManager()
     @State private var pendingLayoutUpdate: Task<Void, Never>?
 
     private var downloadedPages: [ComicPage] {
@@ -30,39 +30,39 @@ struct ComicPagesView: View {
                     ScrollView {
                         LazyVGrid(columns: adaptiveColumns, spacing: Layout.gridSpacing) {
                             ForEach(downloadedPages, id: \.id) { page in
-                                PageTile(page: page, isSelected: model.selection.contains(page.id))
+                                PageTile(page: page, isSelected: selectionManager.selection.contains(page.id))
                                     .contentShape(Rectangle())
                                     // Command+Shift-click: union range with current selection
                                     .highPriorityGesture(
                                         TapGesture().modifiers([.command, .shift])
-                                            .onEnded { model.unionWithRange(to: page.id) }
+                                            .onEnded { selectionManager.unionWithRange(to: page.id) }
                                     )
                                     // Command-click: toggle single item
                                     .highPriorityGesture(
                                         TapGesture().modifiers(.command)
                                             .onEnded {
-                                                model.toggleSelection(page.id)
+                                                selectionManager.toggleSelection(page.id)
                                             }
                                     )
                                     // Shift-click: replace selection with range from anchor to clicked
                                     .highPriorityGesture(
                                         TapGesture().modifiers(.shift)
-                                            .onEnded { model.replaceWithRange(to: page.id) }
+                                            .onEnded { selectionManager.replaceWithRange(to: page.id) }
                                     )
                                     // Plain click: replace selection with this item
                                     .onTapGesture {
-                                        if model.selection == [page.id] {
-                                            model.toggleSelection(page.id)
+                                        if selectionManager.selection == [page.id] {
+                                            selectionManager.toggleSelection(page.id)
                                         } else {
-                                            model.replaceSelection(with: page.id)
+                                            selectionManager.replaceSelection(with: page.id)
                                         }
                                     }
                                     .anchorPreference(key: TileFramesPreferenceKey.self, value: .bounds) { anchor in
                                         [page.id: anchor]
                                     }
                                     .contextMenu {
-                                        Button(model.selection.contains(page.id) ? "Deselect" : "Select") {
-                                            model.toggleSelection(page.id)
+                                        Button(selectionManager.selection.contains(page.id) ? "Deselect" : "Select") {
+                                            selectionManager.toggleSelection(page.id)
                                         }
                                     }
                             }
@@ -71,41 +71,41 @@ struct ComicPagesView: View {
                         .highPriorityGesture(
                             DragGesture(minimumDistance: 0).modifiers(.command)
                                 .onChanged { value in
-                                    if model.selectionRect == nil {
-                                        model.beginDrag(at: value.startLocation, mode: .toggle)
+                                    if selectionManager.selectionRect == nil {
+                                        selectionManager.beginDrag(at: value.startLocation, mode: .toggle)
                                     }
-                                    model.updateDrag(to: value.location, mode: .toggle)
+                                    selectionManager.updateDrag(to: value.location, mode: .toggle)
                                 }
                                 .onEnded { value in
-                                    model.endDrag(at: value.location)
+                                    selectionManager.endDrag(at: value.location)
                                 }
                         )
                         .highPriorityGesture(
                             DragGesture(minimumDistance: 0).modifiers(.shift)
                                 .onChanged { value in
-                                    if model.selectionRect == nil {
-                                        model.beginDrag(at: value.startLocation, mode: .union)
+                                    if selectionManager.selectionRect == nil {
+                                        selectionManager.beginDrag(at: value.startLocation, mode: .union)
                                     }
-                                    model.updateDrag(to: value.location, mode: .union)
+                                    selectionManager.updateDrag(to: value.location, mode: .union)
                                 }
                                 .onEnded { value in
-                                    model.endDrag(at: value.location)
+                                    selectionManager.endDrag(at: value.location)
                                 }
                         )
                         .gesture(
                             DragGesture(minimumDistance: 0)
                                 .onChanged { value in
-                                    if model.selectionRect == nil {
-                                        model.beginDrag(at: value.startLocation, mode: .replace)
+                                    if selectionManager.selectionRect == nil {
+                                        selectionManager.beginDrag(at: value.startLocation, mode: .replace)
                                     }
-                                    model.updateDrag(to: value.location, mode: .replace)
+                                    selectionManager.updateDrag(to: value.location, mode: .replace)
                                 }
                                 .onEnded { value in
-                                    model.endDrag(at: value.location)
+                                    selectionManager.endDrag(at: value.location)
                                 }
                         )
                         .overlay(alignment: .topLeading) {
-                            if let rect = model.selectionRect {
+                            if let rect = selectionManager.selectionRect {
                                 ZStack {
                                     Rectangle()
                                         .fill(Color.accentColor.opacity(0.12))
@@ -138,6 +138,13 @@ struct ComicPagesView: View {
                         }
                     }
                     .toolbar { selectionToolbar }
+                    .onAppear {
+                        selectionManager
+                            .onSelectionChange { _ in /* no-op or analytics hook */ }
+                            .onBeginDrag { _, _ in /* no-op */ }
+                            .onUpdateDrag { _, _ in /* no-op */ }
+                            .onEndDrag { _ in /* no-op */ }
+                    }
                 }
             }
         }
@@ -150,9 +157,9 @@ struct ComicPagesView: View {
             // Coalesce multiple updates in the same frame
             try? await Task.sleep(for: .milliseconds(1))
             if Task.isCancelled { return }
-            model.updateItemFrames(frames)
-            model.updateGridOrigin(origin)
-            model.updateOrderedIDs(orderedIDs)
+            selectionManager.updateItemFrames(frames)
+            selectionManager.updateGridOrigin(origin)
+            selectionManager.updateOrderedIDs(orderedIDs)
         }
     }
 
@@ -161,13 +168,13 @@ struct ComicPagesView: View {
     @ToolbarContentBuilder
     private var selectionToolbar: some ToolbarContent {
         ToolbarItemGroup {
-            Button("Select All") { model.selection = Set(downloadedPages.map { $0.id }) }
+            Button("Select All") { selectionManager.setSelection(Set(downloadedPages.map { $0.id })) }
                 .keyboardShortcut("A", modifiers: .command)
-                .disabled(downloadedPages.isEmpty || model.selection.count == downloadedPages.count)
-            Button("Clear Selection") { model.selection.removeAll() }
+                .disabled(downloadedPages.isEmpty || selectionManager.selection.count == downloadedPages.count)
+            Button("Clear Selection") { selectionManager.clearSelection() }
                 .keyboardShortcut("D", modifiers: .command)
-                .disabled(model.selection.isEmpty)
-            Text("\(model.selection.count) selected")
+                .disabled(selectionManager.selection.isEmpty)
+            Text("\(selectionManager.selection.count) selected")
                 .foregroundStyle(.secondary)
         }
     }

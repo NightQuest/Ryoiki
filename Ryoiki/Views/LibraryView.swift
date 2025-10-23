@@ -46,8 +46,7 @@ struct LibraryView: View {
                 onUpdate: { comic in
                     externalSelectedComic = comic
                     viewModel.update(comic: comic, context: context)
-                }
-                ,
+                },
                 onOpenPages: { comic in
                     externalSelectedComic = comic
                     if hasDownloadedPages(for: comic) {
