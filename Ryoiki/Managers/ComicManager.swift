@@ -124,7 +124,6 @@ struct ComicManager: Sendable {
         }
     }
 
-    // swiftlint:disable:next cyclomatic_complexity
     func fetchPages(
         for comic: Comic,
         context: ModelContext,
@@ -169,6 +168,30 @@ struct ComicManager: Sendable {
         var preparedSinceLastCommit = 0
         let commitThreshold = 5 // commit every N prepared pages
 
+        @inline(__always)
+        func shouldStop(maxPages: Int?, pagesAdded: Int) -> Bool {
+            if let max = maxPages, pagesAdded >= max { return true }
+            return false
+        }
+
+        @inline(__always)
+        func commitIfNeeded(finalize: @Sendable () async throws -> Void,
+                            preparedSinceLastCommit: inout Int,
+                            commitThreshold: Int) async throws {
+            if preparedSinceLastCommit >= commitThreshold {
+                try await finalize()
+                await Task.yield()
+            }
+        }
+
+        @inline(__always)
+        func nextURL(from current: URL,
+                     parsed: CMTypes.ParseResult,
+                     selectorNext: String,
+                     visited: Set<String>) -> URL? {
+            advance(from: current, using: parsed.doc, selectorNext: selectorNext, visited: visited)
+        }
+
         // Local helper to commit prepared pages so UI/badges update
         func finalize() async throws {
             if !pendingPages.isEmpty {
@@ -192,11 +215,7 @@ struct ComicManager: Sendable {
 
         do {
             while true {
-                if Task.isCancelled {
-                    try await finalize()
-                    throw CancellationError()
-                }
-                if let maxPages, pagesAdded >= maxPages { break }
+                if shouldStop(maxPages: maxPages, pagesAdded: pagesAdded) { break }
                 guard visitedURLs.insert(currentURL.absoluteString).inserted else { break }
 
                 let parsed = try await fetchAndParse(
@@ -228,22 +247,19 @@ struct ComicManager: Sendable {
                 currentMaxIndex = prep.result.newStartingIndex
                 if prep.result.didReachMax { break }
 
-                // Throttled mid-fetch commit to show progress without badge churn
                 preparedSinceLastCommit += prep.prepared.count
-                if preparedSinceLastCommit >= commitThreshold {
-                    try await finalize()
-                    // yield to keep UI responsive
-                    await Task.yield()
-                }
+                try await commitIfNeeded(finalize: finalize,
+                                         preparedSinceLastCommit: &preparedSinceLastCommit,
+                                         commitThreshold: commitThreshold)
 
                 previousURL = currentURL
 
-                if let maxPages, pagesAdded >= maxPages { break }
-                if let next = advance(from: currentURL, using: parsed.doc, selectorNext: selectorNext, visited: visitedURLs) {
-                    currentURL = next
-                } else {
-                    break
-                }
+                if shouldStop(maxPages: maxPages, pagesAdded: pagesAdded) { break }
+                guard let next = nextURL(from: currentURL,
+                                         parsed: parsed,
+                                         selectorNext: selectorNext,
+                                         visited: visitedURLs) else { break }
+                currentURL = next
             }
 
             // Normal completion: commit prepared pages so badges/UI update once
