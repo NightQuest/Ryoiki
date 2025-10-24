@@ -41,13 +41,13 @@ struct PagesGrid: View {
                 GeometryReader { proxy in
                     Color.clear
                         .onAppear {
-                            let containerOrigin = proxy.frame(in: .global).origin
+                            let containerOrigin = CGPoint.zero
                             let frames = resolveFrames(anchors, proxy: proxy, containerOrigin: containerOrigin)
                             let ids = downloadedPages.map { $0.id }
                             onLayoutUpdate(frames, containerOrigin, ids)
                         }
                         .onChange(of: anchors) { _, newValue in
-                            let containerOrigin = proxy.frame(in: .global).origin
+                            let containerOrigin = CGPoint.zero
                             let frames = resolveFrames(newValue, proxy: proxy, containerOrigin: containerOrigin)
                             let ids = downloadedPages.map { $0.id }
                             onLayoutUpdate(frames, containerOrigin, ids)
