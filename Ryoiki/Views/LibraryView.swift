@@ -21,7 +21,6 @@ struct LibraryView: View {
                                        systemImage: "square.grid.2x2",
                                        description: Text("Add a web comic"))
                 .padding()
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .padding(.horizontal)
         } else {
