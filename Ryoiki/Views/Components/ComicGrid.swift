@@ -25,12 +25,37 @@ struct ComicGrid: View {
         ScrollView {
             let columns: [GridItem] = computedColumns(itemsPerRowPreference: itemsPerRowPreference)
 
-            LazyVGrid(columns: columns, spacing: Layout.gridSpacing) {
-                ForEach(comics, id: \.id) { comic in
-                    gridItem(for: comic)
+            EntityGrid(
+                items: comics,
+                selectionManager: .constant(SelectionManager()),
+                onLayoutUpdate: { _, _, _ in },
+                columns: columns,
+                tile: { comic, _ in
+                    ComicTile(comic: comic,
+                              isSelected: selectedComic == comic,
+                              isFetching: fetchingComicIDs.contains(comic.id),
+                              isUpdating: updatingComicIDs.contains(comic.id),
+                              overridePageCount: frozenBadgeCounts[comic.id])
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedComic = comic
+                    }
+                },
+                contextMenu: { comic, _ in
+                    Group {
+                        Button { onOpenPages?(comic) } label: { Label("Pages", systemImage: "square.grid.3x3") }
+                        Button { onEdit?(comic) } label: { Label("Edit", systemImage: "pencil") }
+                        Divider()
+                        Button { onFetch?(comic) } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
+                        Button { onUpdate?(comic) } label: { Label("Update", systemImage: "square.and.arrow.down") }
+                        Divider()
+                        Button(role: .destructive) {
+                            comicPendingDelete = comic
+                            showDeleteAlert = true
+                        } label: { Label("Delete Comic…", systemImage: "trash") }
+                    }
                 }
-            }
-            .padding(Layout.gridPadding)
+            )
             .transaction { $0.animation = nil }
             .background(
                 Color.clear
@@ -63,34 +88,6 @@ struct ComicGrid: View {
                 selectedComic = nil
             }
         )
-    }
-
-    @ViewBuilder
-    private func gridItem(for comic: Comic) -> some View {
-        ComicTile(comic: comic,
-                  isSelected: selectedComic == comic,
-                  isFetching: fetchingComicIDs.contains(comic.id),
-                  isUpdating: updatingComicIDs.contains(comic.id),
-                  overridePageCount: frozenBadgeCounts[comic.id])
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                TapGesture(count: 1)
-                    .onEnded {
-                        selectedComic = comic
-                    }
-            )
-            .contextMenu {
-                Button { onOpenPages?(comic) } label: { Label("Pages", systemImage: "square.grid.3x3") }
-                Button { onEdit?(comic) } label: { Label("Edit", systemImage: "pencil") }
-                Divider()
-                Button { onFetch?(comic) } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
-                Button { onUpdate?(comic) } label: { Label("Update", systemImage: "square.and.arrow.down") }
-                Divider()
-                Button(role: .destructive) {
-                    comicPendingDelete = comic
-                    showDeleteAlert = true
-                } label: { Label("Delete Comic…", systemImage: "trash") }
-            }
     }
 
     private func computedColumns(itemsPerRowPreference: Int, minTileWidth: CGFloat = 160) -> [GridItem] {
