@@ -9,8 +9,13 @@ func resolveURL(_ string: String, base: URL?) -> URL? {
 }
 
 private let _imageURLAttributeNames: [String] = [
-    "data-orig-file", "data-image", "data-lazy-src", "data-original",
-    "data-zoom-image", "data-large_image", "data-hires", "data-src", "src"
+    "data-orig-file", "data-image",
+
+    "data-lazy-src", "data-original", "data-zoom-image",
+    "data-large_image", "data-hires", "data-src",
+
+    "data-url",
+    "src"
 ]
 
 private func _absoluteURL(_ string: String, base: URL?) -> URL? {
