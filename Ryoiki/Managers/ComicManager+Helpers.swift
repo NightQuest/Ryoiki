@@ -69,6 +69,7 @@ private func parseTitle(in doc: Document, selector: String) -> String? {
     guard !selector.isEmpty,
           let raw = try? doc.select(selector).first()?.text()
     else { return nil }
-    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    let unescaped = (try? Entities.unescape(raw)) ?? raw
+    let trimmed = unescaped.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
 }
