@@ -9,7 +9,7 @@ struct LibraryView: View {
     @Binding var externalSelectedComic: Comic?
     @Binding var displayInspector: Bool
     @Binding var isInspectorAnimating: Bool
-    @AppStorage("library.itemsPerRow") private var itemsPerRowPreference: Int = 6
+    @AppStorage(.settingsLibraryItemsPerRow) private var itemsPerRowPreference: Int = 6
     @State private var viewModel = LibraryViewModel()
     @State private var pagesComic: Comic?
 

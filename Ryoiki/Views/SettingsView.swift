@@ -21,7 +21,7 @@ struct SettingsView: View {
 }
 
 struct GeneralSettingsView: View {
-    @AppStorage("library.itemsPerRow") private var itemsPerRowPreference: Int = 6
+    @AppStorage(.settingsLibraryItemsPerRow) private var itemsPerRowPreference: Int = 6
 
     var body: some View {
         Form {
