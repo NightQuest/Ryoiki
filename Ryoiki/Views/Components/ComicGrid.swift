@@ -21,6 +21,9 @@ struct ComicGrid: View {
     @State private var showDeleteAlert: Bool = false
     @State private var comicPendingDelete: Comic?
 
+    @State private var showCleanupAlert: Bool = false
+    @State private var comicPendingCleanup: Comic?
+
     var body: some View {
         ScrollView {
             let columns: [GridItem] = computedColumns(itemsPerRowPreference: itemsPerRowPreference)
@@ -49,6 +52,10 @@ struct ComicGrid: View {
                         Button { onFetch?(comic) } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
                         Button { onUpdate?(comic) } label: { Label("Update", systemImage: "square.and.arrow.down") }
                         Divider()
+                        Button(role: .destructive) {
+                            comicPendingCleanup = comic
+                            showCleanupAlert = true
+                        } label: { Label("Clear Data", systemImage: "trash.slash") }
                         Button(role: .destructive) {
                             comicPendingDelete = comic
                             showDeleteAlert = true
@@ -82,6 +89,30 @@ struct ComicGrid: View {
             }
         } message: {
             Text("This will remove the comic and all of its downloaded pages. This action cannot be undone.")
+        }
+        .alert("Clear Data for \"\(comicPendingCleanup?.name ?? "Comic")\"?", isPresented: $showCleanupAlert) {
+            Button("Clear", role: .destructive) {
+                if let comic = comicPendingCleanup {
+                    // Delete downloaded folder
+                    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    let cm = ComicManager()
+                    cm.deleteDownloadFolder(for: comic, in: docs)
+
+                    // Delete fetched pages associated with this comic from the model context
+                    for page in comic.pages {
+                        modelContext.delete(page)
+                    }
+
+                    try? modelContext.save()
+                }
+                comicPendingCleanup = nil
+            }
+            Button("Cancel", role: .cancel) {
+                comicPendingCleanup = nil
+            }
+        } message: {
+            Text("This will delete all downloaded pages for this comic and remove its download folder. " +
+                 "The comic entry will remain. This action cannot be undone.")
         }
         .simultaneousGesture(
             TapGesture().onEnded {
