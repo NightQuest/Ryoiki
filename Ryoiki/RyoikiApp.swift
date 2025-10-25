@@ -30,5 +30,13 @@ struct RyoikiApp: App {
         .modelContainer(modelContainer)
         .windowToolbarStyle(.expanded)
         .windowToolbarLabelStyle(fixed: .titleAndIcon)
+
+#if os(macOS)
+        Settings {
+            SettingsView()
+        }
+        .windowToolbarStyle(.expanded)
+        .windowToolbarLabelStyle(fixed: .titleAndIcon)
+#endif
     }
 }
