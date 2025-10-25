@@ -5,6 +5,11 @@ struct ComicDetailView: View {
     let comic: Comic
     var onClose: (() -> Void)?
 
+    private var dedupedPageCount: Int {
+        let uniqueByURL = Set(comic.pages.map { $0.pageURL })
+        return uniqueByURL.count
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -17,7 +22,7 @@ struct ComicDetailView: View {
                 }
 
                 if !comic.pages.isEmpty {
-                    LabeledContent("Pages", value: String(comic.pages.count))
+                    LabeledContent("Pages", value: String(dedupedPageCount))
                 }
 
                 if !comic.descriptionText.isEmpty {

@@ -46,7 +46,7 @@ struct ComicGrid: View {
                 },
                 contextMenu: { comic, _ in
                     Group {
-                        Button { onOpenPages?(comic) } label: { Label("Pages", systemImage: "square.grid.3x3") }
+                        Button { onOpenPages?(comic) } label: { Label("Images", systemImage: "square.grid.3x3") }
                         Button { onEdit?(comic) } label: { Label("Edit", systemImage: "pencil") }
                         Divider()
                         Button { onFetch?(comic) } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
@@ -88,7 +88,7 @@ struct ComicGrid: View {
                 comicPendingDelete = nil
             }
         } message: {
-            Text("This will remove the comic and all of its downloaded pages. This action cannot be undone.")
+            Text("This will remove the comic and all of its downloaded images. This action cannot be undone.")
         }
         .alert("Clear Data for \"\(comicPendingCleanup?.name ?? "Comic")\"?", isPresented: $showCleanupAlert) {
             Button("Clear", role: .destructive) {
@@ -111,7 +111,7 @@ struct ComicGrid: View {
                 comicPendingCleanup = nil
             }
         } message: {
-            Text("This will delete all downloaded pages for this comic and remove its download folder. " +
+            Text("This will delete all downloaded images for this comic and remove its download folder. " +
                  "The comic entry will remain. This action cannot be undone.")
         }
         .simultaneousGesture(

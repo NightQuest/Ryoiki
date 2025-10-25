@@ -118,7 +118,7 @@ struct LibraryView: View {
                 pagesComic = externalSelectedComic
                 isDisplayingComicPages = true
             } label: {
-                Label("Pages", systemImage: "square.grid.3x3")
+                Label("Images", systemImage: "square.grid.3x3")
             }
             .disabled(!hasDownloadedPages(for: externalSelectedComic))
             .buttonStyle(.bordered)
@@ -158,7 +158,7 @@ struct LibraryView: View {
             }
             .navigationDestination(isPresented: $isDisplayingComicPages) {
                 if let comic = pagesComic {
-                    ComicPagesView(comic: comic)
+                    ComicImagesView(comic: comic)
                 } else {
                     ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
                 }

@@ -26,6 +26,11 @@ struct ComicTile: View {
         return ""
     }
 
+    private var dedupedPageCount: Int {
+        let uniqueByURL = Set(comic.pages.map { $0.pageURL })
+        return uniqueByURL.count
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 8) {
@@ -88,7 +93,7 @@ struct ComicTile: View {
 
             // Custom badge (page count)
             if !comic.pages.isEmpty {
-                Text("\(overridePageCount ?? comic.pages.count)")
+                Text("\(overridePageCount ?? dedupedPageCount)")
                     .font(.caption2).bold()
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)

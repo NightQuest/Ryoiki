@@ -3,7 +3,7 @@ import SwiftData
 import CoreGraphics
 import Observation
 
-struct ComicPagesView: View {
+struct ComicImagesView: View {
     let comic: Comic
 
     @State private var selectionManager = SelectionManager()
@@ -22,12 +22,12 @@ struct ComicPagesView: View {
         ZStack {
             VStack(spacing: 0) {
                 if downloadedPages.isEmpty {
-                    ContentUnavailableView("No downloaded pages",
+                    ContentUnavailableView("No downloaded images",
                                            systemImage: "photo",
                                            description: Text("Use Update to download images first."))
                     .padding()
                 } else {
-                    PagesGrid(
+                    ImagesGrid(
                         downloadedPages: downloadedPages,
                         selectionManager: $selectionManager,
                         onLayoutUpdate: { frames, origin, ids in
@@ -45,7 +45,7 @@ struct ComicPagesView: View {
                 }
             }
         }
-        .navigationTitle("Pages: \(comic.name)")
+        .navigationTitle("Images: \(comic.name)")
     }
 
     private func scheduleLayoutUpdate(frames: [UUID: CGRect], origin: CGPoint, orderedIDs: [UUID]) {

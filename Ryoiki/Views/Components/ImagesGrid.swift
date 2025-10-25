@@ -1,5 +1,5 @@
 //
-//  PagesGrid.swift
+//  ImagesGrid.swift
 //  Ryoiki
 //
 //  Created by Stardust on 2025-10-24.
@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct PagesGrid: View {
+struct ImagesGrid: View {
     let downloadedPages: [ComicPage]
     @Binding var selectionManager: SelectionManager
     let onLayoutUpdate: (_ frames: [UUID: CGRect], _ origin: CGPoint, _ orderedIDs: [UUID]) -> Void
