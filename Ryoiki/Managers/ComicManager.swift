@@ -8,7 +8,6 @@
 import Foundation
 import SwiftSoup
 import SwiftData
-import SwiftUI
 
 struct ComicManager: Sendable {
     private let rateLimiter: RateLimiter
@@ -174,106 +173,98 @@ struct ComicManager: Sendable {
             return false
         }
 
-        @inline(__always)
-        func commitIfNeeded(finalize: @Sendable () async throws -> Void,
-                            preparedSinceLastCommit: inout Int,
-                            commitThreshold: Int) async throws {
-            if preparedSinceLastCommit >= commitThreshold {
-                try await finalize()
+        @MainActor
+        func applyPendingPages() throws {
+            guard !pendingPages.isEmpty else { return }
+            for spec in pendingPages {
+                let page = ComicPage(
+                    comic: comic,
+                    index: spec.index,
+                    title: spec.title,
+                    pageURL: spec.pageURL,
+                    imageURL: spec.imageURL
+                )
+                context.insert(page)
+            }
+            try context.save()
+        }
+
+        func finalizeIfNeeded(force: Bool = false) async throws {
+            if force || preparedSinceLastCommit >= commitThreshold {
+                try await MainActor.run {
+                    try applyPendingPages()
+                }
+                pendingPages.removeAll(keepingCapacity: true)
+                preparedSinceLastCommit = 0
                 await Task.yield()
             }
         }
 
-        @inline(__always)
-        func nextURL(from current: URL,
-                     parsed: CMTypes.ParseResult,
-                     selectorNext: String,
-                     visited: Set<String>) -> URL? {
+        func nextURL(from current: URL, parsed: CMTypes.ParseResult, selectorNext: String, visited: Set<String>) -> URL? {
             advance(from: current, using: parsed.doc, selectorNext: selectorNext, visited: visited)
         }
 
-        // Local helper to commit prepared pages so UI/badges update
-        func finalize() async throws {
-            if !pendingPages.isEmpty {
-                try await MainActor.run {
-                    for spec in pendingPages {
-                        let page = ComicPage(
-                            comic: comic,
-                            index: spec.index,
-                            title: spec.title,
-                            pageURL: spec.pageURL,
-                            imageURL: spec.imageURL
-                        )
-                        context.insert(page)
-                    }
-                    try context.save()
+        // Ensure we always try to commit pending pages on function exit/cancellation
+        defer {
+            Task { @MainActor in
+                do {
+                    try applyPendingPages()
+                } catch {
+                    // Swallow here; caller already receives the thrown error from main body
                 }
-                pendingPages.removeAll()
-                preparedSinceLastCommit = 0
             }
         }
 
-        do {
-            while true {
-                if shouldStop(maxPages: maxPages, pagesAdded: pagesAdded) { break }
-                guard visitedURLs.insert(currentURL.absoluteString).inserted else { break }
+        while true {
+            if shouldStop(maxPages: maxPages, pagesAdded: pagesAdded) { break }
+            guard visitedURLs.insert(currentURL.absoluteString).inserted else { break }
 
-                let parsed = try await fetchAndParse(
-                    url: currentURL,
-                    referer: previousURL,
-                    selectorTitle: selectorTitle,
-                    selectorImage: selectorImage
+            let parsed = try await fetchAndParse(
+                url: currentURL,
+                referer: previousURL,
+                selectorTitle: selectorTitle,
+                selectorImage: selectorImage
+            )
+
+            guard !parsed.imageURLs.isEmpty else { break }
+
+            let prep: CMTypes.PreparationResult = try await MainActor.run {
+                let input = CMTypes.PreparationInput(
+                    currentPageURL: currentURL,
+                    startingIndex: currentMaxIndex,
+                    titleText: parsed.title,
+                    maxPages: maxPages.map { $0 - pagesAdded },
+                    existingPairKeys: existingPairKeys
                 )
-
-                guard !parsed.imageURLs.isEmpty else { break }
-
-                let prep: CMTypes.PreparationResult = try await MainActor.run {
-                    let input = CMTypes.PreparationInput(
-                        currentPageURL: currentURL,
-                        startingIndex: currentMaxIndex,
-                        titleText: parsed.title,
-                        maxPages: maxPages.map { $0 - pagesAdded },
-                        existingPairKeys: existingPairKeys
-                    )
-                    return try preparePagesWithoutInserting(
-                        from: parsed.imageURLs,
-                        input: input
-                    )
-                }
-                existingPairKeys = prep.updatedKeys
-                pendingPages.append(contentsOf: prep.prepared)
-
-                pagesAdded += prep.result.inserted
-                currentMaxIndex = prep.result.newStartingIndex
-                if prep.result.didReachMax { break }
-
-                preparedSinceLastCommit += prep.prepared.count
-                try await commitIfNeeded(finalize: finalize,
-                                         preparedSinceLastCommit: &preparedSinceLastCommit,
-                                         commitThreshold: commitThreshold)
-
-                previousURL = currentURL
-
-                if shouldStop(maxPages: maxPages, pagesAdded: pagesAdded) { break }
-                guard let next = nextURL(from: currentURL,
-                                         parsed: parsed,
-                                         selectorNext: selectorNext,
-                                         visited: visitedURLs) else { break }
-                currentURL = next
+                return try preparePagesWithoutInserting(
+                    from: parsed.imageURLs,
+                    input: input
+                )
             }
 
-            // Normal completion: commit prepared pages so badges/UI update once
-            try await finalize()
-            return pagesAdded
-        } catch {
-            // On cancellation, commit whatever we prepared so far, then rethrow
-            if error is CancellationError {
-                try await finalize()
-            } else if let e = error as? ComicManager.Error, case .cancelled = e {
-                try await finalize()
-            }
-            throw error
+            existingPairKeys = prep.updatedKeys
+            pendingPages.append(contentsOf: prep.prepared)
+
+            pagesAdded += prep.result.inserted
+            currentMaxIndex = prep.result.newStartingIndex
+            if prep.result.didReachMax { try await finalizeIfNeeded(force: true); break }
+
+            preparedSinceLastCommit += prep.prepared.count
+            try await finalizeIfNeeded()
+
+            previousURL = currentURL
+
+            if shouldStop(maxPages: maxPages, pagesAdded: pagesAdded) { try await finalizeIfNeeded(force: true); break }
+            guard let next = nextURL(from: currentURL,
+                                     parsed: parsed,
+                                     selectorNext: selectorNext,
+                                     visited: visitedURLs) else { try await finalizeIfNeeded(force: true); break }
+            currentURL = next
         }
+
+        // Normal completion path: ensure everything is committed
+        try await finalizeIfNeeded(force: true)
+        return pagesAdded
     }
 
     // Heavy I/O is performed off-main; model writes hop to main actor.
