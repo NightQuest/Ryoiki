@@ -29,7 +29,8 @@ struct ImagesGrid: View {
                 } label: {
                     Label("Set as Cover", systemImage: "rectangle.portrait")
                 }
-                .disabled(isSelected && selectionManager.selection.count == 1)
+                .disabled(!(selectionManager.selection.isEmpty ||
+                          (isSelected && selectionManager.selection.count == 1)))
             } else {
                 Text("Select a single image to set as cover").foregroundStyle(.secondary)
             }
