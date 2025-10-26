@@ -85,8 +85,16 @@ struct EntityGrid<Entity: Identifiable, Tile: View, Menu: View>: View where Enti
             .backgroundPreferenceValue(TileFramesPreferenceKey.self) { anchors in
                 GeometryReader { proxy in
                     Color.clear
-                        .onAppear { reportLayout(anchors, proxy: proxy) }
-                        .onChange(of: anchors) { _, newValue in reportLayout(newValue, proxy: proxy) }
+                        .onAppear {
+                            DispatchQueue.main.async {
+                                reportLayout(anchors, proxy: proxy)
+                            }
+                        }
+                        .onChange(of: anchors) { _, newValue in
+                            DispatchQueue.main.async {
+                                reportLayout(newValue, proxy: proxy)
+                            }
+                        }
                 }
             }
         }
