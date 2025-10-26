@@ -97,147 +97,72 @@ struct ComicManager: Sendable {
         }
 
         // Build a fast lookup of existing (pageURL|imageURL) pairs to avoid O(n) scans on main actor
-        var existingPairKeys: Set<String> = await MainActor.run {
+        let existingPairKeys: Set<String> = await MainActor.run {
             Set(comic.pages.map { "\($0.pageURL)|\($0.imageURL)" })
         }
 
         // Find current maximum index in existing pages (main-actor snapshot once)
-        var currentMaxIndex: Int = await MainActor.run {
+        let currentMaxIndex: Int = await MainActor.run {
             comic.pages.max(by: { $0.index < $1.index })?.index ?? -1
         }
 
         let initiallyEmpty: Bool = await MainActor.run { comic.pages.isEmpty }
-        var didSetCoverAtFetchTime = false
 
-        var visitedURLs = Set<String>()
-        var pagesAdded = 0
+        let visitedURLs = Set<String>()
+        let pagesAdded = 0
 
-        var currentURL = firstPageURL
-        var previousURL: URL?
+        let currentURL = firstPageURL
+        let previousURL: URL? = nil
 
-        var pendingPages: [CMTypes.PageSpec] = []
-
-        var preparedSinceLastCommit = 0
+        let preparedSinceLastCommit = 0
         let commitThreshold = 5 // commit every N prepared pages
 
-        @inline(__always)
-        func shouldStop(maxPages: Int?, pagesAdded: Int) -> Bool {
-            if let max = maxPages, pagesAdded >= max { return true }
-            return false
-        }
+        let selectors = Selectors(title: selectorTitle, image: selectorImage, next: selectorNext)
 
-        @MainActor
-        func applyPendingPages() throws {
-            guard !pendingPages.isEmpty else { return }
-            for spec in pendingPages {
-                let page = ComicPage(
-                    comic: comic,
-                    index: spec.index,
-                    title: spec.title,
-                    pageURL: spec.pageURL,
-                    imageURL: spec.imageURL
-                )
-                context.insert(page)
-            }
-            try context.save()
-        }
+        var state = FetchState(
+            didSetCoverAtFetchTime: false,
+            existingPairKeys: existingPairKeys,
+            currentMaxIndex: currentMaxIndex,
+            visitedURLs: visitedURLs,
+            pagesAdded: pagesAdded,
+            currentURL: currentURL,
+            previousURL: previousURL,
+            pendingPages: [],
+            preparedSinceLastCommit: preparedSinceLastCommit,
+            commitThreshold: commitThreshold,
+            initiallyEmpty: initiallyEmpty
+        )
 
-        func finalizeIfNeeded(force: Bool = false) async throws {
-            if force || preparedSinceLastCommit >= commitThreshold {
-                try await MainActor.run {
-                    try applyPendingPages()
-                }
-                pendingPages.removeAll(keepingCapacity: true)
-                preparedSinceLastCommit = 0
-                await Task.yield()
-            }
-        }
-
-        func nextURL(from current: URL, parsed: CMTypes.ParseResult, selectorNext: String, visited: Set<String>) -> URL? {
-            advance(from: current, using: parsed.doc, selectorNext: selectorNext, visited: visited)
-        }
+        let env = FetchEnv(comic: comic, context: context)
 
         // Ensure we always try to commit pending pages on function exit/cancellation
         defer {
             Task { @MainActor in
                 do {
-                    try applyPendingPages()
-                } catch {
-                    // Swallow here; caller already receives the thrown error from main body
-                }
+                    try self.applyPendingPages(state: &state, env: env)
+                } catch { }
             }
         }
 
         while true {
-            if shouldStop(maxPages: maxPages, pagesAdded: pagesAdded) { break }
-            guard visitedURLs.insert(currentURL.absoluteString).inserted else { break }
-
-            let parsed = try await fetchAndParse(
-                url: currentURL,
-                referer: previousURL,
-                selectorTitle: selectorTitle,
-                selectorImage: selectorImage,
-                http: http
+            let result = try await stepOnce(
+                maxPages: maxPages,
+                selectors: selectors,
+                env: env,
+                state: &state
             )
 
-            guard !parsed.imageURLs.isEmpty else { break }
-
-            // If this is the first-ever fetch (no pages existed) and we haven't set a cover yet,
-            // attempt to download the first image's data and set as cover.
-            if initiallyEmpty && !didSetCoverAtFetchTime {
-                if let firstImageURL = parsed.imageURLs.first {
-                    do {
-                        let data = try await getData(firstImageURL, referer: currentURL)
-                        await MainActor.run {
-                            if comic.coverImage == nil { // still only set if empty
-                                comic.coverImage = data
-                                try? context.save()
-                            }
-                        }
-                        didSetCoverAtFetchTime = true
-                    } catch {
-                        // Ignore errors; cover can be set later when downloading images
-                    }
-                }
+            switch result {
+            case .advance(let next, let newPrevious):
+                state.previousURL = newPrevious
+                state.currentURL = next
+            case .finished:
+                try await finalizeIfNeeded(state: &state,
+                                           env: env,
+                                           force: true)
+                return state.pagesAdded
             }
-
-            let prep: CMTypes.PreparationResult = try await MainActor.run {
-                let input = CMTypes.PreparationInput(
-                    currentPageURL: currentURL,
-                    startingIndex: currentMaxIndex,
-                    titleText: parsed.title,
-                    maxPages: maxPages.map { $0 - pagesAdded },
-                    existingPairKeys: existingPairKeys
-                )
-                return try preparePagesWithoutInserting(
-                    from: parsed.imageURLs,
-                    input: input
-                )
-            }
-
-            existingPairKeys = prep.updatedKeys
-            pendingPages.append(contentsOf: prep.prepared)
-
-            pagesAdded += prep.result.inserted
-            currentMaxIndex = prep.result.newStartingIndex
-            if prep.result.didReachMax { try await finalizeIfNeeded(force: true); break }
-
-            preparedSinceLastCommit += prep.prepared.count
-            try await finalizeIfNeeded()
-
-            previousURL = currentURL
-
-            if shouldStop(maxPages: maxPages, pagesAdded: pagesAdded) { try await finalizeIfNeeded(force: true); break }
-            guard let next = nextURL(from: currentURL,
-                                     parsed: parsed,
-                                     selectorNext: selectorNext,
-                                     visited: visitedURLs) else { try await finalizeIfNeeded(force: true); break }
-            currentURL = next
         }
-
-        // Normal completion path: ensure everything is committed
-        try await finalizeIfNeeded(force: true)
-        return pagesAdded
     }
 
     // Heavy I/O is performed off-main; model writes hop to main actor.
@@ -472,5 +397,159 @@ struct ComicManager: Sendable {
         if fm.fileExists(atPath: folder.path) {
             try? fm.removeItem(at: folder)
         }
+    }
+}
+
+extension ComicManager {
+    struct FetchState {
+        var didSetCoverAtFetchTime: Bool
+        var existingPairKeys: Set<String>
+        var currentMaxIndex: Int
+        var visitedURLs: Set<String>
+        var pagesAdded: Int
+        var currentURL: URL
+        var previousURL: URL?
+        var pendingPages: [CMTypes.PageSpec]
+        var preparedSinceLastCommit: Int
+        let commitThreshold: Int
+        let initiallyEmpty: Bool
+    }
+
+    struct Selectors {
+        let title: String
+        let image: String
+        let next: String
+    }
+
+    struct FetchEnv {
+        let comic: Comic
+        let context: ModelContext
+    }
+
+    enum StepOutcome {
+        case advance(to: URL, previous: URL?)
+        case finished
+    }
+
+    @inline(__always)
+    func shouldStop(maxPages: Int?, pagesAdded: Int) -> Bool {
+        if let max = maxPages, pagesAdded >= max { return true }
+        return false
+    }
+
+    @MainActor
+    func applyPendingPages(state: inout FetchState, env: FetchEnv) throws {
+        guard !state.pendingPages.isEmpty else { return }
+        for spec in state.pendingPages {
+            let page = ComicPage(
+                comic: env.comic,
+                index: spec.index,
+                title: spec.title,
+                pageURL: spec.pageURL,
+                imageURL: spec.imageURL
+            )
+            env.context.insert(page)
+        }
+        try env.context.save()
+        state.pendingPages.removeAll(keepingCapacity: true)
+    }
+
+    func finalizeIfNeeded(state: inout FetchState,
+                          env: FetchEnv,
+                          force: Bool = false) async throws {
+        if force || state.preparedSinceLastCommit >= state.commitThreshold {
+            try await MainActor.run {
+                try applyPendingPages(state: &state, env: env)
+            }
+            state.preparedSinceLastCommit = 0
+            await Task.yield()
+        }
+    }
+
+    func maybeSetCover(from parsed: CMTypes.ParseResult,
+                       referer: URL,
+                       env: FetchEnv,
+                       state: inout FetchState) async {
+        guard state.initiallyEmpty, !state.didSetCoverAtFetchTime, let firstImageURL = parsed.imageURLs.first else { return }
+        do {
+            let data = try await getData(firstImageURL, referer: referer)
+            await MainActor.run {
+                if env.comic.coverImage == nil {
+                    env.comic.coverImage = data
+                    try? env.context.save()
+                }
+            }
+            state.didSetCoverAtFetchTime = true
+        } catch { }
+    }
+
+    func prepareBatch(from parsed: CMTypes.ParseResult,
+                      at url: URL,
+                      maxPages: Int?,
+                      state: FetchState) async throws -> CMTypes.PreparationResult {
+        try await MainActor.run {
+            let input = CMTypes.PreparationInput(
+                currentPageURL: url,
+                startingIndex: state.currentMaxIndex,
+                titleText: parsed.title,
+                maxPages: maxPages.map { $0 - state.pagesAdded },
+                existingPairKeys: state.existingPairKeys
+            )
+            return try preparePagesWithoutInserting(
+                from: parsed.imageURLs,
+                input: input
+            )
+        }
+    }
+
+    func stepOnce(maxPages: Int?,
+                  selectors: Selectors,
+                  env: FetchEnv,
+                  state: inout FetchState) async throws -> StepOutcome {
+        if shouldStop(maxPages: maxPages, pagesAdded: state.pagesAdded) { return .finished }
+        guard state.visitedURLs.insert(state.currentURL.absoluteString).inserted else { return .finished }
+
+        let parsed = try await fetchAndParse(
+            url: state.currentURL,
+            referer: state.previousURL,
+            selectorTitle: selectors.title,
+            selectorImage: selectors.image,
+            http: http
+        )
+        guard !parsed.imageURLs.isEmpty else { return .finished }
+
+        await maybeSetCover(from: parsed,
+                            referer: state.currentURL,
+                            env: env,
+                            state: &state)
+
+        let prep = try await prepareBatch(from: parsed,
+                                          at: state.currentURL,
+                                          maxPages: maxPages,
+                                          state: state)
+        state.existingPairKeys = prep.updatedKeys
+        state.pendingPages.append(contentsOf: prep.prepared)
+
+        state.pagesAdded += prep.result.inserted
+        state.currentMaxIndex = prep.result.newStartingIndex
+
+        state.preparedSinceLastCommit += prep.prepared.count
+        try await finalizeIfNeeded(state: &state,
+                                   env: env,
+                                   force: prep.result.didReachMax)
+        if prep.result.didReachMax { return .finished }
+
+        if shouldStop(maxPages: maxPages, pagesAdded: state.pagesAdded) {
+            try await finalizeIfNeeded(state: &state, env: env, force: true)
+            return .finished
+        }
+
+        guard let next = advance(from: state.currentURL, using: parsed.doc, selectorNext: selectors.next, visited: state.visitedURLs) else {
+            try await finalizeIfNeeded(state: &state, env: env, force: true)
+            return .finished
+        }
+
+        let previous = state.currentURL
+        return .advance(to: next, previous: previous)
     }
 }
