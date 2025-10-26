@@ -15,4 +15,9 @@ extension Comic {
             self.coverImage = data
         }
     }
+
+    var dedupedPageCount: Int {
+        let uniqueByURL = Set(self.pages.map { $0.pageURL })
+        return uniqueByURL.count
+    }
 }

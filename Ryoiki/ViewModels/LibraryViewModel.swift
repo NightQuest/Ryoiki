@@ -23,7 +23,7 @@ final class LibraryViewModel {
     func fetch(comic: Comic, context: ModelContext) {
         guard fetchTasks[comic.id] == nil else { return }
         fetchingComicIDs.insert(comic.id)
-        frozenBadgeCounts[comic.id] = comic.pages.count
+        frozenBadgeCounts[comic.id] = comic.dedupedPageCount
         fetchTasks[comic.id] = Task { @MainActor in
             defer {
                 fetchingComicIDs.remove(comic.id)
