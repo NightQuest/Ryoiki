@@ -1,25 +1,19 @@
 import Foundation
 import SwiftSoup
 
-private let defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 " +
-"(KHTML, like Gecko) Version/15.1 Safari/605.1.15"
-
 // MARK: - Fetch & Parse
 
-func fetchAndParse(url: URL, referer: URL?, selectorTitle: String, selectorImage: String) async throws -> CMTypes.ParseResult {
-    var request = URLRequest(url: url)
-    request.httpMethod = "GET"
-    request.setValue(defaultUserAgent, forHTTPHeaderField: "User-Agent")
-    if let referer { request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer") }
-
-    let (data, response) = try await URLSession.shared.data(for: request)
-
-    guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
-        throw URLError(.badServerResponse)
+func fetchAndParse(url: URL,
+                   referer: URL?,
+                   selectorTitle: String,
+                   selectorImage: String,
+                   http: HTTPClientProtocol) async throws -> CMTypes.ParseResult {
+    let (data, response) = try await http.get(url, referer: referer)
+    guard (200..<300).contains(response.statusCode) else {
+        throw ComicManager.Error.badStatus(response.statusCode)
     }
-
     guard let htmlString = String(data: data, encoding: .utf8) else {
-        throw CocoaError(.fileReadInapplicableStringEncoding)
+        throw ComicManager.Error.parse
     }
 
     let doc = try SwiftSoup.parse(htmlString, url.absoluteString)

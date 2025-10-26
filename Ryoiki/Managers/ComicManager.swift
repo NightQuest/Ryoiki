@@ -10,7 +10,7 @@ import SwiftSoup
 import SwiftData
 
 struct ComicManager: Sendable {
-    private let rateLimiter: RateLimiter
+    private let http: HTTPClientProtocol
 
     enum Error: Swift.Error {
         case network(Swift.Error)
@@ -21,105 +21,55 @@ struct ComicManager: Sendable {
         case cancelled
     }
 
-    private let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15"
-    private let session: URLSession
-
-    init(session: URLSession = .shared, rateLimiter: RateLimiter = .shared) {
-        self.session = session
-        self.rateLimiter = rateLimiter
-    }
-
-    // MARK: - Networking
-
-    private func makeRequest(url: URL, method: String, referer: URL?) -> URLRequest {
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        if let referer { request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer") }
-        return request
-    }
-
-    private func request(url: URL, method: String, referer: URL?) async throws -> (Data, HTTPURLResponse) {
-        await rateLimiter.acquire(for: url)
-        let request = makeRequest(url: url, method: method, referer: referer)
-        do {
-            let (data, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw Error.network(URLError(.badServerResponse))
-            }
-            return (data, httpResponse)
-        } catch {
-            throw mapNetworkError(error)
-        }
-    }
-
-    /// Maps any thrown error into a `ComicManager.Error`, preserving cancellation semantics.
-    private func mapNetworkError(_ error: Swift.Error) -> ComicManager.Error {
-        if error is CancellationError { return .cancelled }
-        return .network(error)
-    }
-
-    /// Downloads a resource to a temporary file using URLSession.download(for:), applying headers.
-    private func downloadToTemp(url: URL, referer: URL?) async throws -> (URL, HTTPURLResponse) {
-        await rateLimiter.acquire(for: url)
-        let request = makeRequest(url: url, method: "GET", referer: referer)
-        do {
-            let (tempURL, response) = try await session.download(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw Error.network(URLError(.badServerResponse))
-            }
-            return (tempURL, httpResponse)
-        } catch {
-            throw mapNetworkError(error)
-        }
+    init(httpClient: HTTPClientProtocol = HTTPClient()) {
+        self.http = httpClient
     }
 
     /// Loads an HTML document as a UTF-8 string using a GET request, applying the configured User-Agent and optional Referer.
     func html(from url: URL, referer: URL? = nil) async throws -> String {
         do {
-            let (data, response) = try await request(url: url, method: "GET", referer: referer)
+            let (data, response) = try await http.get(url, referer: referer)
             guard (200..<300).contains(response.statusCode) else {
                 throw Error.badStatus(response.statusCode)
             }
             guard let html = String(data: data, encoding: .utf8) else {
-                throw Error.parse // keep domain-specific error, but decoding failed
+                throw Error.parse
             }
             return html
-        } catch let scraperError as ComicManager.Error {
-            // Forward scraper errors as-is (including .cancelled)
-            throw scraperError
-        } catch {
-            throw mapNetworkError(error)
+        } catch let clientError as HTTPClientError {
+            switch clientError {
+            case .badStatus(let code): throw Error.badStatus(code)
+            case .cancelled: throw CancellationError()
+            case .network(let underlying): throw Error.network(underlying)
+            }
         }
     }
 
-    /// Performs a HEAD request and returns the status code and Content-Type header if present.
-    func head(_ url: URL, referer: URL? = nil) async throws -> (status: Int, contentType: String?) {
+    func head(_ url: URL, referer: URL? = nil) async throws -> HTTPURLResponse {
         do {
-            let (_, response) = try await request(url: url, method: "HEAD", referer: referer)
-            let contentType = response.value(forHTTPHeaderField: "Content-Type")
-            return (response.statusCode, contentType)
-        } catch let scraperError as ComicManager.Error {
-            // Forward scraper errors as-is (including .cancelled)
-            throw scraperError
-        } catch {
-            throw mapNetworkError(error)
+            return try await http.head(url, referer: referer)
+        } catch let clientError as HTTPClientError {
+            switch clientError {
+            case .badStatus(let code): throw Error.badStatus(code)
+            case .cancelled: throw CancellationError()
+            case .network(let underlying): throw Error.network(underlying)
+            }
         }
     }
 
-    /// Loads raw data using a GET request, applying the configured User-Agent and optional Referer.
     func getData(_ url: URL, referer: URL? = nil) async throws -> Data {
         do {
-            let (data, response) = try await request(url: url, method: "GET", referer: referer)
+            let (data, response) = try await http.get(url, referer: referer)
             guard (200..<300).contains(response.statusCode) else {
                 throw Error.badStatus(response.statusCode)
             }
             return data
-        } catch let scraperError as ComicManager.Error {
-            // Forward scraper errors as-is (including .cancelled)
-            throw scraperError
-        } catch {
-            throw mapNetworkError(error)
+        } catch let clientError as HTTPClientError {
+            switch clientError {
+            case .badStatus(let code): throw Error.badStatus(code)
+            case .cancelled: throw CancellationError()
+            case .network(let underlying): throw Error.network(underlying)
+            }
         }
     }
 
@@ -223,7 +173,8 @@ struct ComicManager: Sendable {
                 url: currentURL,
                 referer: previousURL,
                 selectorTitle: selectorTitle,
-                selectorImage: selectorImage
+                selectorImage: selectorImage,
+                http: http
             )
 
             guard !parsed.imageURLs.isEmpty else { break }
@@ -404,32 +355,38 @@ struct ComicManager: Sendable {
 
         // Network image path
         guard let imageURL = URL(string: page.imageURL) else { return false }
-        let (tempURL, response) = try await downloadToTemp(url: imageURL, referer: pageURL)
-        guard (200..<300).contains(response.statusCode) else {
-            try? fileManager.removeItem(at: tempURL)
-            return false
-        }
-        let contentType = response.value(forHTTPHeaderField: "Content-Type")
-        let ext = fileExtension(contentType: contentType, urlExtension: imageURL.pathExtension, fallback: "png")
+        do {
+            let (tempURL, response) = try await http.downloadToTemp(url: imageURL, referer: pageURL)
+            guard (200..<300).contains(response.statusCode) else {
+                try? fileManager.removeItem(at: tempURL)
+                return false
+            }
+            let contentType = response.value(forHTTPHeaderField: "Content-Type")
+            let ext = fileExtension(contentType: contentType, urlExtension: imageURL.pathExtension, fallback: "png")
 
-        let fileName = "\(indexWithSuffix)\(titlePart).\(ext)"
-        let fileURL = comicFolder.appendingPathComponent(fileName)
+            let fileName = "\(indexWithSuffix)\(titlePart).\(ext)"
+            let fileURL = comicFolder.appendingPathComponent(fileName)
 
-        defer { try? fileManager.removeItem(at: tempURL) }
+            defer { try? fileManager.removeItem(at: tempURL) }
 
-        if !overwrite && fileManager.fileExists(atPath: fileURL.path) {
+            if !overwrite && fileManager.fileExists(atPath: fileURL.path) {
+                return true
+            }
+
+            if overwrite && fileManager.fileExists(atPath: fileURL.path) {
+                try? fileManager.removeItem(at: fileURL)
+            }
+
+            try fileManager.moveItem(at: tempURL, to: fileURL)
+            await MainActor.run {
+                page.downloadPath = fileURL.absoluteString
+            }
             return true
+        } catch let clientError as HTTPClientError {
+            // Swallow cancellations silently; propagate other errors
+            if case .cancelled = clientError { return false }
+            throw clientError
         }
-
-        if overwrite && fileManager.fileExists(atPath: fileURL.path) {
-            try? fileManager.removeItem(at: fileURL)
-        }
-
-        try fileManager.moveItem(at: tempURL, to: fileURL)
-        await MainActor.run {
-            page.downloadPath = fileURL.absoluteString
-        }
-        return true
     }
 
     // MARK: - Navigation
@@ -448,7 +405,7 @@ struct ComicManager: Sendable {
         var lastError: Swift.Error?
         for attempt in 0..<max(1, attempts) {
             do {
-                return try await html(from: url, referer: referer)
+                return try await self.html(from: url, referer: referer)
             } catch {
                 // Do not retry on cancellation
                 if error is CancellationError {
