@@ -37,7 +37,7 @@ struct ComicTile: View {
                     if let data = comic.coverImage, let nsImage = NSImage(data: data) {
                         Image(nsImage: nsImage)
                             .resizable()
-                            .scaledToFill()
+                            .scaledToFit()
                             .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))
                     } else {
                         let firstLocalURL: URL? = {
@@ -48,6 +48,7 @@ struct ComicTile: View {
 
                         if let firstLocalURL {
                             ThumbnailImage(url: firstLocalURL, maxPixel: 512)
+                                .scaledToFit()
                                 .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))
                         } else {
                             Image(systemName: "photo")
@@ -58,7 +59,7 @@ struct ComicTile: View {
                         }
                     }
                 }
-                .frame(maxWidth: .infinity)
+                .frame(idealWidth: 250, maxWidth: 250)
                 .aspectRatio(0.75, contentMode: .fit)
                 .overlay(
                     RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous)
