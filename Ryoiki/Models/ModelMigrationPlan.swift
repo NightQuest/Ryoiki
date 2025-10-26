@@ -1,24 +1,24 @@
 import Foundation
 import SwiftData
 
-typealias Comic = ComicSchemaV1.Comic
-typealias ComicPage = ComicSchemaV1.ComicPage
+typealias Comic = ComicSchemaV2.Comic
+typealias ComicPage = ComicSchemaV2.ComicPage
+typealias ComicImages = ComicSchemaV2.ComicPageImages
 
 enum ComicMigrationPlan: SchemaMigrationPlan {
-    static let migrateV1toV1 = MigrationStage.custom(
+
+    static let migrateV1toV2 = MigrationStage.lightweight(
         fromVersion: ComicSchemaV1.self,
-        toVersion: ComicSchemaV1.self,
-        willMigrate: { _ in
-            // remove duplicates then save
-        }, didMigrate: nil
+        toVersion: ComicSchemaV2.self
     )
 
     static var stages: [MigrationStage] {
-        [migrateV1toV1]
+        [migrateV1toV2]
     }
 
     // List schema versions in order from oldest to newest.
     static var schemas: [any VersionedSchema.Type] = [
-        ComicSchemaV1.self
+        ComicSchemaV1.self,
+        ComicSchemaV2.self
     ]
 }

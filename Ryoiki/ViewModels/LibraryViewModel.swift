@@ -127,13 +127,15 @@ final class LibraryViewModel {
                     let oldPath = oldFolder.path
                     let newPath = newFolder.path
                     for page in comic.pages {
-                        guard !page.downloadPath.isEmpty else { continue }
-                        if let url = URL(string: page.downloadPath), url.scheme != nil {
-                            let updatedPath = url.path.replacingOccurrences(of: oldPath, with: newPath)
-                            let newFileURL = URL(fileURLWithPath: updatedPath)
-                            page.downloadPath = newFileURL.absoluteString
-                        } else {
-                            page.downloadPath = page.downloadPath.replacingOccurrences(of: oldPath, with: newPath)
+                        for image in page.images {
+                            guard !image.downloadPath.isEmpty else { continue }
+                            if let url = URL(string: image.downloadPath), url.scheme != nil {
+                                let updatedPath = url.path.replacingOccurrences(of: oldPath, with: newPath)
+                                let newFileURL = URL(fileURLWithPath: updatedPath)
+                                image.downloadPath = newFileURL.absoluteString
+                            } else {
+                                image.downloadPath = image.downloadPath.replacingOccurrences(of: oldPath, with: newPath)
+                            }
                         }
                     }
                     try? context.save()

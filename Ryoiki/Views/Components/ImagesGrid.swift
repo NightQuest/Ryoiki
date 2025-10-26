@@ -8,34 +8,39 @@
 import SwiftUI
 
 struct ImagesGrid: View {
-    let downloadedPages: [ComicPage]
+    let downloadedImages: [DownloadedImageItem]
+    let comic: Comic
     @Binding var selectionManager: SelectionManager
     let onLayoutUpdate: (_ frames: [UUID: CGRect], _ origin: CGPoint, _ orderedIDs: [UUID]) -> Void
 
     var body: some View {
         EntityGrid(
-            items: downloadedPages,
+            items: downloadedImages,
             selectionManager: $selectionManager,
             onLayoutUpdate: onLayoutUpdate,
             minWidth: 140,
             maxWidth: 260
-        ) { page, isSelected in
-            PageTile(page: page, isSelected: isSelected)
-        } contextMenu: { page, isSelected in
-            if let fileURL = page.downloadedFileURL,
-               FileManager.default.fileExists(atPath: fileURL.path) {
+        ) { item, isSelected in
+            ImageTile(
+                fileURL: item.fileURL,
+                isSelected: isSelected,
+                title: item.fileURL.deletingPathExtension().lastPathComponent,
+                subtitle: URL(string: comic.url)?.host
+            )
+        } contextMenu: { item, isSelected in
+            if FileManager.default.fileExists(atPath: item.fileURL.path) {
                 Button {
-                    page.comic.setCoverImage(from: fileURL)
+                    // Set cover from selected image
+                    comic.setCoverImage(from: item.fileURL)
                 } label: {
                     Label("Set as Cover", systemImage: "rectangle.portrait")
                 }
-                .disabled(!(selectionManager.selection.isEmpty ||
-                          (isSelected && selectionManager.selection.count == 1)))
+                .disabled(!(selectionManager.selection.isEmpty || (isSelected && selectionManager.selection.count == 1)))
             } else {
                 Text("Select a single image to set as cover").foregroundStyle(.secondary)
             }
             Button(isSelected ? "Deselect" : "Select") {
-                selectionManager.toggleSelection(page.id)
+                selectionManager.toggleSelection(item.id)
             }
         }
     }

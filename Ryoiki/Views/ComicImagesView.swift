@@ -9,26 +9,33 @@ struct ComicImagesView: View {
     @State private var selectionManager = SelectionManager()
     @State private var pendingLayoutUpdate: Task<Void, Never>?
 
-    private var downloadedPages: [ComicPage] {
-        comic.pages
+    private var downloadedImages: [DownloadedImageItem] {
+        let fm = FileManager.default
+        return comic.pages
             .sorted { $0.index < $1.index }
-            .filter { page in
-                guard let url = page.downloadedFileURL else { return false }
-                return FileManager.default.fileExists(atPath: url.path)
+            .flatMap { page in
+                page.images
+                    .sorted { $0.index < $1.index }
+                    .compactMap { image -> DownloadedImageItem? in
+                        guard let url = image.fileURL else { return nil }
+                        guard fm.fileExists(atPath: url.path) else { return nil }
+                        return DownloadedImageItem(id: image.id, pageID: page.id, imageID: image.id, fileURL: url)
+                    }
             }
     }
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if downloadedPages.isEmpty {
+                if downloadedImages.isEmpty {
                     ContentUnavailableView("No downloaded images",
                                            systemImage: "photo",
                                            description: Text("Use Update to download images first."))
                     .padding()
                 } else {
                     ImagesGrid(
-                        downloadedPages: downloadedPages,
+                        downloadedImages: downloadedImages,
+                        comic: comic,
                         selectionManager: $selectionManager,
                         onLayoutUpdate: { frames, origin, ids in
                             scheduleLayoutUpdate(frames: frames, origin: origin, orderedIDs: ids)
@@ -65,9 +72,9 @@ struct ComicImagesView: View {
     @ToolbarContentBuilder
     private var selectionToolbar: some ToolbarContent {
         ToolbarItemGroup {
-            Button("Select All") { selectionManager.setSelection(Set(downloadedPages.map { $0.id })) }
+            Button("Select All") { selectionManager.setSelection(Set(downloadedImages.map { $0.id })) }
                 .keyboardShortcut("A", modifiers: .command)
-                .disabled(downloadedPages.isEmpty || selectionManager.selection.count == downloadedPages.count)
+                .disabled(downloadedImages.isEmpty || selectionManager.selection.count == downloadedImages.count)
             Button("Clear Selection") { selectionManager.clearSelection() }
                 .keyboardShortcut("D", modifiers: .command)
                 .disabled(selectionManager.selection.isEmpty)

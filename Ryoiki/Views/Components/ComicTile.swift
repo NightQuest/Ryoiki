@@ -26,6 +26,13 @@ struct ComicTile: View {
         return ""
     }
 
+    private var firstLocalURL: URL? {
+        guard let first = comic.pages.min(by: { $0.index < $1.index }) else { return nil }
+        let url = first.images.min(by: { $0.index < $1.index })?.fileURL
+        if let url, FileManager.default.fileExists(atPath: url.path) { return url }
+        return nil
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 8) {
@@ -33,30 +40,22 @@ struct ComicTile: View {
                     RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous)
                         .fill(.quinary.opacity(0.4))
 
-                    // Thumbnail: prefer explicit coverImage; fallback to earliest downloaded page
+                    // Thumbnail: prefer explicit coverImage; fallback to earliest downloaded image
                     if let data = comic.coverImage, let nsImage = NSImage(data: data) {
                         Image(nsImage: nsImage)
                             .resizable()
                             .scaledToFit()
                             .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))
+                    } else if let url = firstLocalURL {
+                        ThumbnailImage(url: url, maxPixel: 512)
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))
                     } else {
-                        let firstLocalURL: URL? = {
-                            guard let first = comic.pages.min(by: { $0.index < $1.index }),
-                                  let url = first.downloadedFileURL else { return nil }
-                            return FileManager.default.fileExists(atPath: url.path) ? url : nil
-                        }()
-
-                        if let firstLocalURL {
-                            ThumbnailImage(url: firstLocalURL, maxPixel: 512)
-                                .scaledToFit()
-                                .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))
-                        } else {
-                            Image(systemName: "photo")
-                                .resizable()
-                                .scaledToFit()
-                                .padding(24)
-                                .foregroundStyle(.secondary)
-                        }
+                        Image(systemName: "photo")
+                            .resizable()
+                            .scaledToFit()
+                            .padding(24)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .frame(idealWidth: 250, maxWidth: 250)

@@ -169,11 +169,13 @@ struct LibraryView: View {
     private func hasDownloadedPages(for comic: Comic?) -> Bool {
         guard let comic else { return false }
         let fm = FileManager.default
-        return comic.pages.contains { page in
-            if let url = page.downloadedFileURL {
-                return fm.fileExists(atPath: url.path)
+        for page in comic.pages {
+            for image in page.images {
+                if let url = image.fileURL, fm.fileExists(atPath: url.path) {
+                    return true
+                }
             }
-            return false
         }
+        return false
     }
 }

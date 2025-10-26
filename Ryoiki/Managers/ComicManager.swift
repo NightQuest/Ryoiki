@@ -81,7 +81,19 @@ struct ComicManager: Sendable {
         // Snapshot model-derived values that require main-actor access once up front
         let firstPageURL: URL = try await MainActor.run { () -> URL in
             let firstPage = comic.pages.last?.pageURL ?? comic.firstPageURL
-            guard let firstPageTrimmed = firstPage.trimmedNilIfEmpty,
+            let firstPageString = firstPage
+            guard let firstPageTrimmed = firstPageString.trimmedNilIfEmpty,
+                  let url = URL(string: firstPageTrimmed) else {
+                throw Error.invalidBaseURL
+            }
+            return url
+        }
+        let prevPageURL: URL = try await MainActor.run { () -> URL in
+            let firstPage = comic.pages.last(where: { page in
+                page.pageURL != firstPageURL.absoluteString
+            })?.pageURL ?? comic.firstPageURL
+            let firstPageString = firstPage
+            guard let firstPageTrimmed = firstPageString.trimmedNilIfEmpty,
                   let url = URL(string: firstPageTrimmed) else {
                 throw Error.invalidBaseURL
             }
@@ -98,7 +110,9 @@ struct ComicManager: Sendable {
 
         // Build a fast lookup of existing (pageURL|imageURL) pairs to avoid O(n) scans on main actor
         let existingPairKeys: Set<String> = await MainActor.run {
-            Set(comic.pages.map { "\($0.pageURL)|\($0.imageURL)" })
+            Set(comic.pages.flatMap { page in
+                page.images.map { "\(page.pageURL)|\($0.imageURL)" }
+            })
         }
 
         // Find current maximum index in existing pages (main-actor snapshot once)
@@ -112,7 +126,7 @@ struct ComicManager: Sendable {
         let pagesAdded = 0
 
         let currentURL = firstPageURL
-        let previousURL: URL? = nil
+        let previousURL = prevPageURL
 
         let preparedSinceLastCommit = 0
         let commitThreshold = 5 // commit every N prepared pages
@@ -181,34 +195,57 @@ struct ComicManager: Sendable {
             try fileManager.createDirectory(at: comicFolder, withIntermediateDirectories: true)
         }
 
-        // Precompute page-based indexing: group by pageURL to assign a shared base index and per-image position
+        // Precompute page-based indexing: group by pageURL for group counts and per-image positions
         let allPagesSorted = comic.pages.sorted { $0.index < $1.index }
         var groupsByURL: [String: [ComicPage]] = [:]
         for p in allPagesSorted {
             groupsByURL[p.pageURL, default: []].append(p)
         }
-        // Base index is the smallest index in the group
-        let baseIndexByURL: [String: Int] = groupsByURL.mapValues { group in
-            group.map { $0.index }.min() ?? 0
+        // Base index is the sequential order of unique page URLs, starting at 1
+
+        // Group count per URL (number of images per pageURL across all pages)
+        let groupCountByURL: [String: Int] = {
+            var dict: [String: Int] = [:]
+            for (pageURL, pages) in groupsByURL {
+                let count = pages.reduce(0) { partialResult, page in
+                    partialResult + page.images.count
+                }
+                dict[pageURL] = count
+            }
+            return dict
+        }()
+
+        // Flatten all (page,image) pairs
+        let allPairs: [(ComicPage, ComicImages)] = comic.pages.flatMap { page in
+            page.images.map { (page, $0) }
         }
-        // Group count per URL
-        let groupCountByURL: [String: Int] = groupsByURL.mapValues { $0.count }
-        // Position map is 1-based position of each (pageURL,imageURL) within its group (ordered by ComicPage.index)
+
+        // Position map is 1-based position of each (pageURL,imageURL) within its group (ordered by page.index then image.index)
         var positionByCompositeKey: [String: Int] = [:]
-        for (url, group) in groupsByURL {
-            let ordered = group.sorted { $0.index < $1.index }
-            for (i, p) in ordered.enumerated() {
-                let key = "\(url)|\(p.imageURL)"
+        for (_, pages) in groupsByURL {
+            let orderedPairs = pages
+                .sorted { $0.index < $1.index }
+                .flatMap { page in
+                    page.images
+                        .sorted { $0.index < $1.index }
+                        .map { (page, $0) }
+                }
+            for (i, pair) in orderedPairs.enumerated() {
+                let (page, image) = pair
+                let key = "\(page.pageURL)|\(image.imageURL)"
                 positionByCompositeKey[key] = i + 1
             }
         }
 
-        let availablePages = comic.pages
-            .filter { page in
-                page.downloadPath.isEmpty ||
-                !fileManager.fileExists(atPath: page.downloadPath)
-            }
-            .sorted { $0.index < $1.index }
+        let availablePairs = allPairs.filter { pair in
+            let (_, image) = pair
+            return image.downloadPath.isEmpty || !fileManager.fileExists(atPath: image.downloadPath)
+        }.sorted { lhs, rhs in
+            let (lp, li) = lhs
+            let (rp, ri) = rhs
+            if lp.index != rp.index { return lp.index < rp.index }
+            return li.index < ri.index
+        }
 
         var filesWritten = 0
 
@@ -216,20 +253,21 @@ struct ComicManager: Sendable {
 
         // Parallelize downloads with limited concurrency. Model writes hop to MainActor in handlePageDownload.
         try await withThrowingTaskGroup(of: Bool.self) { group in
-            var iterator = availablePages.makeIterator()
+            var iterator = availablePairs.makeIterator()
 
             // Seed initial tasks up to the concurrency limit
-            for _ in 0..<min(maxConcurrent, availablePages.count) {
-                guard let page = iterator.next() else { break }
-                let baseIndex = baseIndexByURL[page.pageURL] ?? page.index
+            for _ in 0..<min(maxConcurrent, availablePairs.count) {
+                guard let (page, image) = iterator.next() else { break }
+                let baseIndex = page.index
                 let groupCount = groupCountByURL[page.pageURL] ?? 1
-                let compositeKey = "\(page.pageURL)|\(page.imageURL)"
+                let compositeKey = "\(page.pageURL)|\(image.imageURL)"
                 let subNumber = positionByCompositeKey[compositeKey]
                 let naming = PageNamingContext(baseIndex: baseIndex, groupCount: groupCount, subNumber: subNumber)
 
                 group.addTask {
                     try await handlePageDownload(
                         page: page,
+                        image: image,
                         comicFolder: comicFolder,
                         overwrite: overwrite,
                         naming: naming
@@ -237,20 +275,21 @@ struct ComicManager: Sendable {
                 }
             }
 
-            // For each finished task, enqueue the next page, maintaining the concurrency window
+            // For each finished task, enqueue the next pair, maintaining the concurrency window
             while let wrote = try await group.next() {
                 if wrote { filesWritten += 1 }
 
-                if let page = iterator.next() {
-                    let baseIndex = baseIndexByURL[page.pageURL] ?? page.index
+                if let (page, image) = iterator.next() {
+                    let baseIndex = page.index
                     let groupCount = groupCountByURL[page.pageURL] ?? 1
-                    let compositeKey = "\(page.pageURL)|\(page.imageURL)"
+                    let compositeKey = "\(page.pageURL)|\(image.imageURL)"
                     let subNumber = positionByCompositeKey[compositeKey]
                     let naming = PageNamingContext(baseIndex: baseIndex, groupCount: groupCount, subNumber: subNumber)
 
                     group.addTask {
                         try await handlePageDownload(
                             page: page,
+                            image: image,
                             comicFolder: comicFolder,
                             overwrite: overwrite,
                             naming: naming
@@ -270,10 +309,14 @@ struct ComicManager: Sendable {
     }
 
     // This updates model properties; must be on main actor, but now called off-main.
-    private func handlePageDownload(page: ComicPage, comicFolder: URL, overwrite: Bool, naming: PageNamingContext) async throws -> Bool {
+    private func handlePageDownload(page: ComicPage,
+                                    image: ComicImages,
+                                    comicFolder: URL,
+                                    overwrite: Bool,
+                                    naming: PageNamingContext) async throws -> Bool {
         let fileManager = FileManager.default
 
-        guard let pageURL = URL(string: page.pageURL) else {
+        guard let refererURL = URL(string: page.pageURL) else {
             return false
         }
 
@@ -283,8 +326,8 @@ struct ComicManager: Sendable {
         let titlePart: String = page.title.isEmpty ? "" : " - " + sanitizeFilename(page.title)
 
         // Data URL path
-        if page.imageURL.hasPrefix("data:") {
-            guard let (mediatype, data) = decodeDataURL(page.imageURL) else { return false }
+        if image.imageURL.hasPrefix("data:") {
+            guard let (mediatype, data) = decodeDataURL(image.imageURL) else { return false }
             let ext = fileExtension(contentType: mediatype, urlExtension: nil, fallback: "png")
             let fileName = "\(indexWithSuffix)\(titlePart).\(ext)"
             let fileURL = comicFolder.appendingPathComponent(fileName)
@@ -293,9 +336,9 @@ struct ComicManager: Sendable {
                 return true
             }
 
-            try data.write(to: fileURL, options: .atomic)
+            try data.write(to: fileURL, options: [])
             await MainActor.run {
-                page.downloadPath = fileURL.absoluteString
+                image.downloadPath = fileURL.absoluteString
             }
             await MainActor.run {
                 if page.comic.coverImage == nil, let data = try? Data(contentsOf: fileURL) {
@@ -306,9 +349,9 @@ struct ComicManager: Sendable {
         }
 
         // Network image path
-        guard let imageURL = URL(string: page.imageURL) else { return false }
+        guard let imageURL = URL(string: image.imageURL) else { return false }
         do {
-            let (tempURL, response) = try await http.downloadToTemp(url: imageURL, referer: pageURL)
+            let (tempURL, response) = try await http.downloadToTemp(url: imageURL, referer: refererURL)
             guard (200..<300).contains(response.statusCode) else {
                 try? fileManager.removeItem(at: tempURL)
                 return false
@@ -331,7 +374,7 @@ struct ComicManager: Sendable {
 
             try fileManager.moveItem(at: tempURL, to: fileURL)
             await MainActor.run {
-                page.downloadPath = fileURL.absoluteString
+                image.downloadPath = fileURL.absoluteString
             }
             await MainActor.run {
                 if page.comic.coverImage == nil, let data = try? Data(contentsOf: fileURL) {
@@ -440,14 +483,28 @@ extension ComicManager {
     @MainActor
     func applyPendingPages(state: inout FetchState, env: FetchEnv) throws {
         guard !state.pendingPages.isEmpty else { return }
+
+        // Determine the starting sequential page number (continue from current max in DB)
+        var nextPageNumber = (env.comic.pages.max(by: { $0.index < $1.index })?.index ?? 0) + 1
+
+        // Assign a normalized, sequential page number per unique pageURL within the pending batch
+        var pageNumberByURL: [String: Int] = [:]
+        for spec in state.pendingPages where pageNumberByURL[spec.pageURL] == nil {
+            pageNumberByURL[spec.pageURL] = nextPageNumber
+            nextPageNumber += 1
+        }
+
+        // Insert pages using the normalized page index so DB matches on-disk naming
         for spec in state.pendingPages {
+            let normalizedIndex = pageNumberByURL[spec.pageURL] ?? spec.index
             let page = ComicPage(
                 comic: env.comic,
-                index: spec.index,
+                index: normalizedIndex,
                 title: spec.title,
-                pageURL: spec.pageURL,
-                imageURL: spec.imageURL
+                pageURL: spec.pageURL
             )
+            let image = ComicImages(comicPage: page, index: 0, imageURL: spec.imageURL)
+            page.images.append(image)
             env.context.insert(page)
         }
         try env.context.save()
