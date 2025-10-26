@@ -1,9 +1,6 @@
 import Foundation
 import SwiftData
 
-typealias Comic = ComicSchemaV1.Comic
-typealias ComicPage = ComicSchemaV1.ComicPage
-
 enum ComicSchemaV1: VersionedSchema {
     static var versionIdentifier = Schema.Version(1, 0, 0)
 
@@ -26,6 +23,8 @@ enum ComicSchemaV1: VersionedSchema {
         var selectorImage: String
         var selectorTitle: String
         var selectorNext: String
+
+        var coverImage: Data?
 
         @Relationship(deleteRule: .cascade)
         var pages: [ComicPage] = []

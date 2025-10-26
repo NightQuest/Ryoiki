@@ -22,6 +22,17 @@ struct ImagesGrid: View {
         ) { page, isSelected in
             PageTile(page: page, isSelected: isSelected)
         } contextMenu: { page, isSelected in
+            if let fileURL = page.downloadedFileURL,
+               FileManager.default.fileExists(atPath: fileURL.path) {
+                Button {
+                    page.comic.setCoverImage(from: fileURL)
+                } label: {
+                    Label("Set as Cover", systemImage: "rectangle.portrait")
+                }
+                .disabled(isSelected && selectionManager.selection.count == 1)
+            } else {
+                Text("Select a single image to set as cover").foregroundStyle(.secondary)
+            }
             Button(isSelected ? "Deselect" : "Select") {
                 selectionManager.toggleSelection(page.id)
             }

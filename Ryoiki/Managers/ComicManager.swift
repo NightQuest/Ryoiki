@@ -106,6 +106,9 @@ struct ComicManager: Sendable {
             comic.pages.max(by: { $0.index < $1.index })?.index ?? -1
         }
 
+        let initiallyEmpty: Bool = await MainActor.run { comic.pages.isEmpty }
+        var didSetCoverAtFetchTime = false
+
         var visitedURLs = Set<String>()
         var pagesAdded = 0
 
@@ -178,6 +181,25 @@ struct ComicManager: Sendable {
             )
 
             guard !parsed.imageURLs.isEmpty else { break }
+
+            // If this is the first-ever fetch (no pages existed) and we haven't set a cover yet,
+            // attempt to download the first image's data and set as cover.
+            if initiallyEmpty && !didSetCoverAtFetchTime {
+                if let firstImageURL = parsed.imageURLs.first {
+                    do {
+                        let data = try await getData(firstImageURL, referer: currentURL)
+                        await MainActor.run {
+                            if comic.coverImage == nil { // still only set if empty
+                                comic.coverImage = data
+                                try? context.save()
+                            }
+                        }
+                        didSetCoverAtFetchTime = true
+                    } catch {
+                        // Ignore errors; cover can be set later when downloading images
+                    }
+                }
+            }
 
             let prep: CMTypes.PreparationResult = try await MainActor.run {
                 let input = CMTypes.PreparationInput(
@@ -350,6 +372,11 @@ struct ComicManager: Sendable {
             await MainActor.run {
                 page.downloadPath = fileURL.absoluteString
             }
+            await MainActor.run {
+                if page.comic.coverImage == nil, let data = try? Data(contentsOf: fileURL) {
+                    page.comic.coverImage = data
+                }
+            }
             return true
         }
 
@@ -380,6 +407,11 @@ struct ComicManager: Sendable {
             try fileManager.moveItem(at: tempURL, to: fileURL)
             await MainActor.run {
                 page.downloadPath = fileURL.absoluteString
+            }
+            await MainActor.run {
+                if page.comic.coverImage == nil, let data = try? Data(contentsOf: fileURL) {
+                    page.comic.coverImage = data
+                }
             }
             return true
         } catch let clientError as HTTPClientError {

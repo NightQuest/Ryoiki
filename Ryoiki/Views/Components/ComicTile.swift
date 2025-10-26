@@ -38,22 +38,29 @@ struct ComicTile: View {
                     RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous)
                         .fill(.quinary.opacity(0.4))
 
-                    // Thumbnail of the earliest downloaded page if available
-                    let firstLocalURL: URL? = {
-                        guard let first = comic.pages.min(by: { $0.index < $1.index }),
-                              let url = first.downloadedFileURL else { return nil }
-                        return FileManager.default.fileExists(atPath: url.path) ? url : nil
-                    }()
-
-                    if let firstLocalURL {
-                        ThumbnailImage(url: firstLocalURL, maxPixel: 512)
+                    // Thumbnail: prefer explicit coverImage; fallback to earliest downloaded page
+                    if let data = comic.coverImage, let nsImage = NSImage(data: data) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .scaledToFill()
                             .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))
                     } else {
-                        Image(systemName: "photo")
-                            .resizable()
-                            .scaledToFit()
-                            .padding(24)
-                            .foregroundStyle(.secondary)
+                        let firstLocalURL: URL? = {
+                            guard let first = comic.pages.min(by: { $0.index < $1.index }),
+                                  let url = first.downloadedFileURL else { return nil }
+                            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+                        }()
+
+                        if let firstLocalURL {
+                            ThumbnailImage(url: firstLocalURL, maxPixel: 512)
+                                .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))
+                        } else {
+                            Image(systemName: "photo")
+                                .resizable()
+                                .scaledToFit()
+                                .padding(24)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity)

@@ -1,6 +1,9 @@
 import Foundation
 import SwiftData
 
+typealias Comic = ComicSchemaV1.Comic
+typealias ComicPage = ComicSchemaV1.ComicPage
+
 enum ComicMigrationPlan: SchemaMigrationPlan {
     static let migrateV1toV1 = MigrationStage.custom(
         fromVersion: ComicSchemaV1.self,
