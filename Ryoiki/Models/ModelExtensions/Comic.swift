@@ -58,4 +58,9 @@ extension Comic {
         let uniqueByURL = Set(self.pages.map { $0.pageURL })
         return uniqueByURL.count
     }
+
+    var imageCount: Int {
+        let pageImages = Set(self.pages.filter { !$0.images.isEmpty }.map({ $0.images }))
+        return pageImages.count
+    }
 }

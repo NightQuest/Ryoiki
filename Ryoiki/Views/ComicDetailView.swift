@@ -20,6 +20,10 @@ struct ComicDetailView: View {
                     LabeledContent("Pages", value: String(comic.dedupedPageCount))
                 }
 
+                if !comic.pages.isEmpty {
+                    LabeledContent("Images", value: String(comic.imageCount))
+                }
+
                 if !comic.descriptionText.isEmpty {
                     Text(comic.descriptionText)
                         .foregroundStyle(.secondary)
