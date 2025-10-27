@@ -38,7 +38,7 @@ struct ComicGrid: View {
                               isSelected: selectedComic == comic,
                               isFetching: fetchingComicIDs.contains(comic.id),
                               isUpdating: updatingComicIDs.contains(comic.id),
-                              overridePageCount: frozenBadgeCounts[comic.id])
+                              overridePageCount: undownloadedCount(for: comic))
                     .contentShape(Rectangle())
                     .onTapGesture {
                         selectedComic = comic
@@ -131,5 +131,25 @@ struct ComicGrid: View {
             // Fallback to adaptive when no preference is set
             return [GridItem(.adaptive(minimum: minTileWidth, maximum: 260), spacing: spacing, alignment: .top)]
         }
+    }
+
+    private func undownloadedCount(for comic: Comic) -> Int? {
+        let totalPages = comic.pages.count
+        if totalPages == 0 { return nil }
+        let fileManager = FileManager.default
+        let remainingPages = comic.pages.filter { page in
+            // A page is undownloaded if any of its images is missing or has an empty/non-existent downloadPath
+            for image in page.images {
+                if image.downloadPath.isEmpty { return true }
+                // Stored as absoluteString; try to construct URL and check existence
+                if let url = URL(string: image.downloadPath) {
+                    if !fileManager.fileExists(atPath: url.path) { return true }
+                } else {
+                    return true
+                }
+            }
+            return page.images.isEmpty // if no images, treat as undownloaded
+        }.count
+        return remainingPages == 0 ? nil : remainingPages
     }
 }

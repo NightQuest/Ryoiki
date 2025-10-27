@@ -7,6 +7,7 @@ struct ComicTile: View {
     let isFetching: Bool
     let isUpdating: Bool
     let overridePageCount: Int?
+    @State private var frozenBadgeCount: Int?
 
     init(comic: Comic, isSelected: Bool, showBadge: Bool = true, isFetching: Bool = false, isUpdating: Bool = false, overridePageCount: Int? = nil) {
         self.comic = comic
@@ -31,6 +32,11 @@ struct ComicTile: View {
         let url = first.images.min(by: { $0.index < $1.index })?.fileURL
         if let url, FileManager.default.fileExists(atPath: url.path) { return url }
         return nil
+    }
+
+    private var displayedBadgeCount: Int? {
+        if isFetching || isUpdating { return frozenBadgeCount }
+        return overridePageCount
     }
 
     var body: some View {
@@ -93,9 +99,9 @@ struct ComicTile: View {
                     .stroke(.quaternary, lineWidth: 1)
             )
 
-            // Custom badge (page count)
-            if !comic.pages.isEmpty {
-                Text("\(overridePageCount ?? comic.dedupedPageCount)")
+            // Custom badge (undownloaded page count)
+            if let count = displayedBadgeCount, count > 0 {
+                Text("\(count)")
                     .font(.caption2).bold()
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -119,6 +125,15 @@ struct ComicTile: View {
                 .transition(.opacity.combined(with: .scale))
                 .animation(.default, value: isFetching)
             }
+        }
+        .onAppear {
+            if !(isFetching || isUpdating) { frozenBadgeCount = overridePageCount }
+        }
+        .onChange(of: isFetching || isUpdating) { _, isBusy in
+            if !isBusy { frozenBadgeCount = overridePageCount }
+        }
+        .onChange(of: overridePageCount) { _, newValue in
+            if !(isFetching || isUpdating) { frozenBadgeCount = newValue }
         }
     }
 }
