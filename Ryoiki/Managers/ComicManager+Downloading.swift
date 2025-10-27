@@ -125,7 +125,30 @@ extension ComicManager {
 
 // MARK: - Download Helpers
 private extension ComicManager {
-    struct PageNamingContext { let baseIndex: Int; let groupCount: Int; let subNumber: Int? }
+    struct PageNamingContext {
+        let baseIndex: Int
+        let groupCount: Int
+        let subNumber: Int?
+
+        let formattedIndex: String
+
+        init(baseIndex: Int, groupCount: Int, subNumber: Int?) {
+            self.baseIndex = baseIndex
+            self.groupCount = groupCount
+            self.subNumber = subNumber
+
+            var formattedIndex = String(format: "%05d", baseIndex)
+            if groupCount > 1 {
+                let postSuffix = String(max(1, subNumber ?? 1))
+
+                formattedIndex += ("-" +
+                                  String(repeating: "0", count: postSuffix.count - 1) +
+                                  postSuffix)
+
+            }
+            self.formattedIndex = formattedIndex
+        }
+    }
 
     // This updates model properties; must be on main actor when touching models.
     func handlePageDownload(page: ComicPage,
@@ -137,16 +160,14 @@ private extension ComicManager {
 
         guard let refererURL = URL(string: page.pageURL) else { return false }
 
-        let indexPadded = String(format: "%05d", naming.baseIndex)
-        let suffix = naming.groupCount > 1 ? "-\(max(1, naming.subNumber ?? 1))" : ""
-        let indexWithSuffix = indexPadded + suffix
+        let index = naming.formattedIndex
         let titlePart: String = page.title.isEmpty ? "" : " - " + sanitizeFilename(page.title)
 
         // Data URL path
         if image.imageURL.hasPrefix("data:") {
             guard let (mediatype, data) = decodeDataURL(image.imageURL) else { return false }
             let ext = fileExtension(contentType: mediatype, urlExtension: nil, fallback: "png")
-            let fileName = "\(indexWithSuffix)\(titlePart).\(ext)"
+            let fileName = "\(index)\(titlePart).\(ext)"
             let fileURL = comicFolder.appendingPathComponent(fileName)
 
             if !overwrite && fileManager.fileExists(atPath: fileURL.path) { return true }
@@ -172,7 +193,7 @@ private extension ComicManager {
             let contentType = response.value(forHTTPHeaderField: "Content-Type")
             let ext = fileExtension(contentType: contentType, urlExtension: imageURL.pathExtension, fallback: "png")
 
-            let fileName = "\(indexWithSuffix)\(titlePart).\(ext)"
+            let fileName = "\(index)\(titlePart).\(ext)"
             let fileURL = comicFolder.appendingPathComponent(fileName)
 
             defer { try? fileManager.removeItem(at: tempURL) }
