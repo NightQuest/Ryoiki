@@ -27,6 +27,41 @@ private func _absoluteURL(_ string: String, base: URL?) -> URL? {
     return URL(string: trimmed)
 }
 
+private func _normalizeImageURLString(_ urlString: String) -> String {
+    guard let url = URL(string: urlString),
+          var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+        return urlString
+    }
+
+    // Known variant params commonly used by WordPress/CDNs
+    let dropParams: Set<String> = [
+        "resize", "w", "h", "width", "height", "fit", "crop", "quality", "q"
+    ]
+
+    if let items = comps.queryItems, !items.isEmpty {
+        let kept = items.filter { item in
+            guard let name = item.name.lowercased().addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return false }
+            return !dropParams.contains(item.name.lowercased()) && !dropParams.contains(name)
+        }
+        comps.queryItems = kept.isEmpty ? nil : kept
+    }
+
+    // Build a host-agnostic dedupe key using last directory + filename when possible
+    // Example: https://i0.wp.com/site.com/wp-content/uploads/2025/08/chap4pg76.png?fit=... -> "uploads/chap4pg76.png"
+    if let path = comps.percentEncodedPath.removingPercentEncoding, !path.isEmpty {
+        // Split path into components and take the last directory and the last component (filename)
+        let parts = path.split(separator: "/").map(String.init)
+        if let filename = parts.last {
+            let lastDir = parts.dropLast().last ?? ""
+            let key = lastDir.isEmpty ? filename : lastDir + "/" + filename
+            return key
+        }
+    }
+
+    // Fallback to the sanitized URL string if path-based key cannot be formed
+    return comps.string ?? urlString
+}
+
 private func _parseSrcset(_ srcset: String) -> [(width: Int, url: String)] {
     srcset
         .split(separator: ",")
@@ -55,23 +90,18 @@ private func _bestURLFromSrcAndSrcset(_ element: Element) -> String? {
         (try? element.attr(name)).flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    // Read attributes
     let src: String? = attr(element, "src")
     let srcsetValue: String = attr(element, "srcset") ?? attr(element, "data-srcset") ?? ""
-    let widthAttr: String? = attr(element, "width")
 
+    // Parse srcset and pick the largest width candidate if available
     let candidates = _parseSrcset(srcsetValue).sorted { lhs, rhs in lhs.width > rhs.width }
-    let largest = candidates.first
-
-    if let largest = largest,
-       let widthAttr = widthAttr,
-       let renderedWidth = Int(widthAttr.trimmingCharacters(in: .whitespaces)),
-       renderedWidth < largest.width {
+    if let largest = candidates.first, !largest.url.isEmpty {
         return largest.url
     }
 
-    if let src = src { return src }
-    if let largest = largest { return largest.url }
-    return nil
+    // Fallback to src if no srcset candidates
+    return src
 }
 
 private func _preferredURLString(for element: Element) -> String? {
@@ -125,12 +155,13 @@ extension Document {
                 return (element, candidate)
             }
 
-            // De-duplicate by URL string while preserving first occurrence and its element
+            // De-duplicate by normalized URL string while preserving first occurrence and its element
             var seen = Set<String>()
             var uniquePairs: [(Element, String)] = []
             uniquePairs.reserveCapacity(pairs.count)
             for (el, u) in pairs where !u.isEmpty {
-                if seen.insert(u).inserted {
+                let key = _normalizeImageURLString(u)
+                if seen.insert(key).inserted {
                     uniquePairs.append((el, u))
                 }
             }
