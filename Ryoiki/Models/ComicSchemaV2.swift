@@ -69,7 +69,7 @@ enum ComicSchemaV2: VersionedSchema {
         var pageURL: String
 
         @Relationship(deleteRule: .cascade)
-        var images: [ComicPageImages] = []
+        var images: [ComicPageImage] = []
 
         init(comic: Comic,
              index: Int,
@@ -83,7 +83,7 @@ enum ComicSchemaV2: VersionedSchema {
     }
 
     @Model
-    class ComicPageImages {
+    class ComicPageImage {
         @Attribute(.unique)
         var id = UUID()
 

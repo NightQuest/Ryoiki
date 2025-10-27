@@ -3,7 +3,7 @@ import SwiftData
 
 typealias Comic = ComicSchemaV2.Comic
 typealias ComicPage = ComicSchemaV2.ComicPage
-typealias ComicImages = ComicSchemaV2.ComicPageImages
+typealias ComicImage = ComicSchemaV2.ComicPageImage
 
 enum ComicMigrationPlan: SchemaMigrationPlan {
 

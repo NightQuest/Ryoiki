@@ -38,7 +38,7 @@ extension ComicManager {
         }()
 
         // Flatten all (page,image) pairs
-        let allPairs: [(ComicPage, ComicImages)] = comic.pages.flatMap { page in
+        let allPairs: [(ComicPage, ComicImage)] = comic.pages.flatMap { page in
             page.images.map { (page, $0) }
         }
 
@@ -129,7 +129,7 @@ private extension ComicManager {
 
     // This updates model properties; must be on main actor when touching models.
     func handlePageDownload(page: ComicPage,
-                            image: ComicImages,
+                            image: ComicImage,
                             comicFolder: URL,
                             overwrite: Bool,
                             naming: PageNamingContext) async throws -> Bool {

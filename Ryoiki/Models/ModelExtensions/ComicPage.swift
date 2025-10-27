@@ -38,7 +38,7 @@ extension ComicPage {
     }
 }
 
-extension ComicImages {
+extension ComicImage {
     /// Returns a resolved file URL for this image's downloaded path, if present and valid.
     /// Handles both absolute file URLs (e.g., file://...) and plain filesystem paths.
     var fileURL: URL? {

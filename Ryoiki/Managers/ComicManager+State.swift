@@ -57,7 +57,7 @@ extension ComicManager {
                 title: spec.title,
                 pageURL: spec.pageURL
             )
-            let image = ComicImages(comicPage: page, index: 0, imageURL: spec.imageURL)
+            let image = ComicImage(comicPage: page, index: 0, imageURL: spec.imageURL)
             page.images.append(image)
             env.context.insert(page)
         }
