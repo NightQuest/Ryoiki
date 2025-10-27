@@ -7,6 +7,8 @@
 import SwiftUI
 
 struct ImageTile: View {
+    @State private var didRender = false
+
     let fileURL: URL
     let isSelected: Bool
     var title: String?
@@ -37,25 +39,44 @@ struct ImageTile: View {
         }
     }
 
+    var image: AnyView {
+        if fileURL.pathExtension.lowercased() == "gif" {
+            return AnyView(
+                GIFAnimatedImageView(url: fileURL, contentMode: .fit, onFirstFrame: {
+                    didRender = true
+                })
+            )
+        } else {
+            return AnyView(
+                ThumbnailImage(url: fileURL, maxPixel: 512, onFirstImage: {
+                    didRender = true
+                })
+            )
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack {
                 RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous)
                     .fill(.quinary.opacity(0.4))
-                ThumbnailImage(url: fileURL, maxPixel: 512)
+
+                // Placeholder only while we don't have a rendered image yet
+                if !didRender {
+                    Rectangle()
+                        .fill(Color.clear)
+                        .overlay {
+                            Image(systemName: "photo")
+                                .font(.largeTitle)
+                                .foregroundStyle(.secondary)
+                                .opacity(0.2)
+                        }
+                        .allowsHitTesting(false)
+                }
+
+                // Actual image content
+                image
                     .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))
-                    .overlay {
-                        // Fallback placeholder overlay if the thumbnail fails to render
-                        Rectangle()
-                            .fill(Color.clear)
-                            .overlay {
-                                Image(systemName: "photo")
-                                    .font(.largeTitle)
-                                    .foregroundStyle(.secondary)
-                                    .opacity(0.2)
-                            }
-                            .allowsHitTesting(false)
-                    }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 160)

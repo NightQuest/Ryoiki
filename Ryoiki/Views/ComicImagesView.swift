@@ -10,15 +10,21 @@ struct ComicImagesView: View {
     @State private var pendingLayoutUpdate: Task<Void, Never>?
 
     private var downloadedImages: [DownloadedImageItem] {
-        let fm = FileManager.default
-        return comic.pages
+        comic.pages
             .sorted { $0.index < $1.index }
             .flatMap { page in
                 page.images
                     .sorted { $0.index < $1.index }
                     .compactMap { image -> DownloadedImageItem? in
                         guard let url = image.fileURL else { return nil }
-                        guard fm.fileExists(atPath: url.path) else { return nil }
+                        // Ensure the file is a regular file, non-empty, and not being modified right now
+                        let rv = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey])
+                        guard rv?.isRegularFile != false else { return nil }
+                        guard (rv?.fileSize ?? 0) > 0 else { return nil }
+                        if let mdate = rv?.contentModificationDate, Date().timeIntervalSince(mdate) < 0.2 {
+                            // Skip files modified in the last 200ms to avoid racing a writer
+                            return nil
+                        }
                         return DownloadedImageItem(id: image.id, pageID: page.id, imageID: image.id, fileURL: url)
                     }
             }
