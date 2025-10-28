@@ -9,4 +9,6 @@ import Foundation
 
 extension String {
     static var settingsLibraryItemsPerRow: String { "settings.LibraryitemsPerRow" }
+    static var settingsReaderDownsampleMaxPixel: String { "settings.reader.downsampleMaxPixel" }
+    static var settingsReaderPreloadRadius: String { "settings.reader.preloadRadius" }
 }

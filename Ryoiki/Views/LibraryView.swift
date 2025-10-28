@@ -12,6 +12,7 @@ struct LibraryView: View {
     @AppStorage(.settingsLibraryItemsPerRow) private var itemsPerRowPreference: Int = 6
     @State private var viewModel = LibraryViewModel()
     @State private var pagesComic: Comic?
+    @State private var isDisplayingReader: Bool = false
 
     @ViewBuilder
     private var LibraryContent: some View {
@@ -115,6 +116,17 @@ struct LibraryView: View {
             .buttonStyle(.bordered)
 
             Button {
+                // Open the selected comic in the full-window reader
+                pagesComic = externalSelectedComic
+                isDisplayingReader = true
+                displayInspector = false
+            } label: {
+                Label("Read", systemImage: "book")
+            }
+            .disabled(!hasDownloadedPages(for: externalSelectedComic))
+            .buttonStyle(.bordered)
+
+            Button {
                 pagesComic = externalSelectedComic
                 isDisplayingComicPages = true
             } label: {
@@ -159,6 +171,13 @@ struct LibraryView: View {
             .navigationDestination(isPresented: $isDisplayingComicPages) {
                 if let comic = pagesComic {
                     ComicImagesView(comic: comic)
+                } else {
+                    ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
+                }
+            }
+            .navigationDestination(isPresented: $isDisplayingReader) {
+                if let comic = pagesComic {
+                    ComicReaderView(comic: comic)
                 } else {
                     ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
                 }
