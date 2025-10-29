@@ -84,6 +84,7 @@ struct ComicReaderView: View {
                     ReaderPager(
                         count: flatURLs.count,
                         selection: $selection,
+                        previousSelection: previousSelection,
                         navDirection: $pageDirection,
                         downsampleMaxPixel: { viewportMax in
                             let scaled = max(viewportMax, 1) * displayScale
@@ -297,6 +298,7 @@ struct ComicReaderView: View {
 private struct ReaderPager: View {
     let count: Int
     @Binding var selection: Int
+    var previousSelection: Int
     @Binding var navDirection: PageDirection
     var downsampleMaxPixel: (CGFloat) -> Int
     var urlForIndex: (Int) -> URL?
@@ -304,34 +306,141 @@ private struct ReaderPager: View {
     var onNext: () -> Void
 
     @State private var isZoomed: Bool = false
+    @State private var slideProgress: CGFloat = 1
+    @State private var activeDirection: PageDirection = .forward
 
-    private var slideTransition: AnyTransition {
-        switch navDirection {
-        case .forward:
-            return .asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading))
-        case .backward:
-            return .asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .trailing))
-        }
-    }
+    @State private var displayedIndex: Int = 0
+    @State private var phase: Int = 0 // 0: steady, 1: sliding out, 2: sliding in
+    @State private var animationTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { proxy in
             let viewportMax = max(proxy.size.width, proxy.size.height)
+
             ZStack {
-                if let url = urlForIndex(selection) {
+                let width = proxy.size.width
+                // Compute animation parameters for single view
+                let isSlidingOut = phase == 1
+                let isSlidingIn = phase == 2
+                let dirSign: CGFloat = (activeDirection == .forward ? 1 : -1)
+                let offsetX: CGFloat = {
+                    if isSlidingOut {
+                        // Push a bit farther than one width for stronger parallax
+                        return -dirSign * width * (1.10 * slideProgress)
+                    } else if isSlidingIn {
+                        // Start farther out and settle to center
+                        return dirSign * width * (1.60 * (1 - slideProgress))
+                    } else {
+                        return 0
+                    }
+                }()
+                let opacityVal: Double = {
+                    if isSlidingOut {
+                        return max(0, 1 - 0.55 * Double(slideProgress)) // 1 -> 0.45
+                    } else if isSlidingIn {
+                        return min(1, 0.55 + 0.45 * Double(slideProgress)) // 0.55 -> 1
+                    } else {
+                        return 1
+                    }
+                }()
+                let scaleVal: CGFloat = {
+                    if isSlidingOut {
+                        return 1 - 0.50 * slideProgress // 1 -> 0.5
+                    } else if isSlidingIn {
+                        return 0.94 + 0.06 * slideProgress // 0.94 -> 1.0
+                    } else {
+                        return 1
+                    }
+                }()
+                let blurVal: CGFloat = {
+                    if isSlidingOut {
+                        return 0 + 2 * slideProgress // up to 2pt blur
+                    } else if isSlidingIn {
+                        return max(0, 2 * (1 - slideProgress)) // 2 -> 0
+                    } else {
+                        return 0
+                    }
+                }()
+                let shadowRadius: CGFloat = {
+                    if isSlidingIn {
+                        return 8 * slideProgress // subtle lift while arriving
+                    } else {
+                        return 0
+                    }
+                }()
+                let shadowOpacity: Double = {
+                    if isSlidingIn {
+                        return 0.25 * Double(slideProgress)
+                    } else {
+                        return 0
+                    }
+                }()
+                let rotationDeg: Double = {
+                    // Subtle Y-axis tilt that follows direction
+                    if isSlidingOut {
+                        return Double(-dirSign * 8 * slideProgress)
+                    } else if isSlidingIn {
+                        return Double(dirSign * 8 * (1 - slideProgress))
+                    } else {
+                        return 0
+                    }
+                }()
+
+                if let url = urlForIndex(displayedIndex) {
                     ZoomablePage(
                         url: url,
                         targetMaxPixel: downsampleMaxPixel(viewportMax),
                         isZoomed: $isZoomed
                     )
                     .frame(width: proxy.size.width, height: proxy.size.height)
-                    .id("\(selection)-\(navDirection)")
-                    .transition(slideTransition)
+                    .offset(x: offsetX)
+                    .opacity(opacityVal)
+                    .scaleEffect(scaleVal)
+                    .blur(radius: blurVal)
+                    .shadow(color: Color.black.opacity(shadowOpacity), radius: shadowRadius, x: 0, y: 4)
+                    .rotation3DEffect(.degrees(rotationDeg), axis: (x: 0, y: 1, z: 0), perspective: 0.7)
                 } else {
                     ReaderPlaceholder(maxWidth: proxy.size.width, maxHeight: proxy.size.height)
                         .frame(width: proxy.size.width, height: proxy.size.height)
-                        .id("\(selection)-\(navDirection)")
-                        .transition(slideTransition)
+                        .offset(x: offsetX)
+                        .opacity(opacityVal)
+                        .scaleEffect(scaleVal)
+                        .blur(radius: blurVal)
+                        .shadow(color: Color.black.opacity(shadowOpacity), radius: shadowRadius, x: 0, y: 4)
+                        .rotation3DEffect(.degrees(rotationDeg), axis: (x: 0, y: 1, z: 0), perspective: 0.7)
+                }
+            }
+            .onAppear {
+                activeDirection = navDirection
+                displayedIndex = selection
+                slideProgress = 1
+                phase = 0
+            }
+            .onChange(of: selection) { _, newValue in
+                guard newValue != displayedIndex else { return }
+                animationTask?.cancel()
+                animationTask = Task { @MainActor in
+                    activeDirection = navDirection
+                    // Slide out current content
+                    phase = 1
+                    slideProgress = 0
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        slideProgress = 1
+                    }
+                    try? await Task.sleep(nanoseconds: 180_000_000)
+
+                    // Swap content and slide in from the correct edge
+                    displayedIndex = newValue
+                    phase = 2
+                    slideProgress = 0
+                    withAnimation(.spring(response: 0.36, dampingFraction: 0.85)) {
+                        slideProgress = 1
+                    }
+                    try? await Task.sleep(nanoseconds: 360_000_000)
+
+                    // Settle
+                    phase = 0
+                    slideProgress = 1
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
