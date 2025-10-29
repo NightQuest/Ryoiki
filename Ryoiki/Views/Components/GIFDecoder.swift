@@ -2,44 +2,62 @@ import Foundation
 import ImageIO
 import CoreGraphics
 
+actor GIFInflightRegistry {
+    private var inflight = Set<URL>()
+    private var waiters: [URL: [CheckedContinuation<[GIFFrame], Never>]] = [:]
+
+    func tryStart(_ url: URL) -> Bool {
+        if inflight.contains(url) { return false }
+        inflight.insert(url)
+        waiters[url] = []
+        return true
+    }
+
+    func addWaiter(_ continuation: CheckedContinuation<[GIFFrame], Never>, for url: URL) {
+        waiters[url, default: []].append(continuation)
+    }
+
+    func finish(_ url: URL, with frames: [GIFFrame]) {
+        let continuations = waiters[url] ?? []
+        inflight.remove(url)
+        waiters[url] = nil
+        for c in continuations { c.resume(returning: frames) }
+    }
+}
+
 struct GIFFrame {
     let image: CGImage
     let duration: TimeInterval
 }
 
 enum GIFDecoder {
-    private static var inflight: [URL: [CheckedContinuation<[GIFFrame], Never>]] = [:]
+    private static let registry = GIFInflightRegistry()
 
     static func loadFramesCoalesced(from url: URL, maxDimension: CGFloat = 512) async -> [GIFFrame] {
         // If cached frames exist, return immediately
         if let cached = GIFFrameCache.shared.frames(for: url), !cached.isEmpty {
             return cached
         }
-        // Coalesce concurrent requests
-        if inflight[url] != nil {
+
+        // Attempt to become the leader for this URL; if not, wait as a coalesced waiter.
+        let isLeader = await registry.tryStart(url)
+        if !isLeader {
             return await withCheckedContinuation { continuation in
-                inflight[url, default: []].append(continuation)
+                Task { await GIFDecoder.registry.addWaiter(continuation, for: url) }
             }
         }
-        // Register leader
-        return await withCheckedContinuation { leader in
-            inflight[url] = []
-            DispatchQueue.global(qos: .userInitiated).async {
-                let loaded = GIFDecoder.loadFrames(from: url, maxDimension: maxDimension)
-                if !loaded.isEmpty {
-                    GIFFrameCache.shared.setFrames(loaded, for: url)
-                }
-                DispatchQueue.main.async {
-                    // Resume leader
-                    leader.resume(returning: loaded)
-                    // Fan out to waiters
-                    if let waiters = inflight[url] {
-                        waiters.forEach { $0.resume(returning: loaded) }
-                    }
-                    inflight[url] = nil
-                }
-            }
+
+        // Leader path: decode on a background task, then fan-out results to waiters.
+        let loaded: [GIFFrame] = await Task.detached(priority: .userInitiated) {
+            await GIFDecoder.loadFrames(from: url, maxDimension: maxDimension)
+        }.value
+
+        if !loaded.isEmpty {
+            GIFFrameCache.shared.setFrames(loaded, for: url)
         }
+
+        await GIFDecoder.registry.finish(url, with: loaded)
+        return loaded
     }
 
     static func loadFrames(from url: URL, maxDimension: CGFloat = 512) -> [GIFFrame] {

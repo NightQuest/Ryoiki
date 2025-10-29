@@ -1,14 +1,6 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// Sanitizes a filename by removing illegal characters and trimming whitespace/newlines.
-func sanitizeFilename(_ filename: String) -> String {
-    let illegalFileNameCharacters = CharacterSet(charactersIn: "/\\?%*|\"<>:")
-    let components = filename.components(separatedBy: illegalFileNameCharacters)
-    let sanitized = components.joined()
-    return sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
 /// Determines a preferred file extension from a Content-Type header or a URL path extension, with a fallback.
 func fileExtension(contentType: String?, urlExtension: String?, fallback: String) -> String {
     if let contentType, let type = UTType(mimeType: contentType), let ext = type.preferredFilenameExtension {

@@ -18,4 +18,10 @@ extension String {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
+
+    /// Returns a filesystem-safe filename by replacing characters that are invalid on common filesystems.
+    func sanitizedForFileName() -> String {
+        let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
+        return components(separatedBy: invalid).joined(separator: "_")
+    }
 }

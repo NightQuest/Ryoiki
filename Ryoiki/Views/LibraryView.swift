@@ -9,7 +9,6 @@ struct LibraryView: View {
     @Binding var isDisplayingComicPages: Bool
     @Binding var externalSelectedComic: Comic?
     @Binding var displayInspector: Bool
-    @Binding var isInspectorAnimating: Bool
     @AppStorage(.settingsLibraryItemsPerRow) private var itemsPerRowPreference: Int = 6
     @State private var viewModel = LibraryViewModel()
     @State private var pagesComic: Comic?
@@ -34,12 +33,9 @@ struct LibraryView: View {
             ComicGrid(
                 comics: comics,
                 selectedComic: $externalSelectedComic,
-                isInspectorAnimating: $isInspectorAnimating,
                 itemsPerRowPreference: itemsPerRowPreference,
-                showBadges: true,
                 fetchingComicIDs: viewModel.fetchingComicIDs,
                 updatingComicIDs: viewModel.updatingComicIDs,
-                frozenBadgeCounts: viewModel.frozenBadgeCounts,
                 onEdit: { comic in
                     externalSelectedComic = comic
                     isEditingComic = true
@@ -55,7 +51,7 @@ struct LibraryView: View {
                 },
                 onOpenPages: { comic in
                     externalSelectedComic = comic
-                    if hasDownloadedPages(for: comic) {
+                    if comic.hasAnyDownloadedImage() {
                         pagesComic = comic
                         isDisplayingComicPages = true
                         displayInspector = false
@@ -144,7 +140,7 @@ struct LibraryView: View {
             } label: {
                 Label("Read", systemImage: "book")
             }
-            .disabled(!hasDownloadedPages(for: externalSelectedComic))
+            .disabled(!(externalSelectedComic?.hasAnyDownloadedImage() ?? false))
             .buttonStyle(.bordered)
 
             Button {
@@ -153,7 +149,7 @@ struct LibraryView: View {
             } label: {
                 Label("Images", systemImage: "square.grid.3x3")
             }
-            .disabled(!hasDownloadedPages(for: externalSelectedComic))
+            .disabled(!(externalSelectedComic?.hasAnyDownloadedImage() ?? false))
             .buttonStyle(.bordered)
 
             Spacer()
@@ -236,19 +232,6 @@ struct LibraryView: View {
         }
     }
 
-    private func hasDownloadedPages(for comic: Comic?) -> Bool {
-        guard let comic else { return false }
-        let fm = FileManager.default
-        for page in comic.pages {
-            for image in page.images {
-                if let url = image.fileURL, fm.fileExists(atPath: url.path) {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
     private func prepareExportProfile() {
         guard let comic = externalSelectedComic else { return }
         do {
@@ -262,12 +245,7 @@ struct LibraryView: View {
 
     private func exportDefaultFilename() -> String {
         let base = externalSelectedComic?.name ?? "ComicProfile"
-        return sanitizeFilename(base) + ".json"
-    }
-
-    private func sanitizeFilename(_ name: String) -> String {
-        let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
-        return name.components(separatedBy: invalid).joined(separator: "_")
+        return base.sanitizedForFileName() + ".json"
     }
 }
 

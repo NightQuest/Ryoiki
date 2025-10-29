@@ -60,6 +60,21 @@ struct EntityGrid<Entity: Identifiable, Tile: View, Menu: View>: View where Enti
         self.contextMenu = contextMenu
     }
 
+    init(items: [Entity],
+         selectionManager: Binding<SelectionManager>,
+         columns: [GridItem],
+         @ViewBuilder tile: @escaping (Entity, Bool) -> Tile,
+         @ViewBuilder contextMenu: @escaping (Entity, Bool) -> Menu) {
+        self.items = items
+        self._selectionManager = selectionManager
+        self.onLayoutUpdate = { _, _, _ in }
+        self.minWidth = 0
+        self.maxWidth = 0
+        self.columns = columns
+        self.tile = tile
+        self.contextMenu = contextMenu
+    }
+
     var body: some View {
         ScrollView {
             LazyVGrid(

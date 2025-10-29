@@ -4,7 +4,6 @@ import SwiftUI
 struct AppRootView: View {
     @State private var selectedComic: Comic?
     @State private var displayInspector: Bool = false
-    @State private var isInspectorAnimating: Bool = false
     @State private var isEditingComic: Bool = false
     @State private var isDisplayingComicPages: Bool = false
 
@@ -13,8 +12,7 @@ struct AppRootView: View {
             LibraryView(isEditingComic: $isEditingComic,
                         isDisplayingComicPages: $isDisplayingComicPages,
                         externalSelectedComic: $selectedComic,
-                        displayInspector: $displayInspector,
-                        isInspectorAnimating: $isInspectorAnimating)
+                        displayInspector: $displayInspector)
         }
         .inspector(isPresented: Binding<Bool>(
             get: { displayInspector && !isEditingComic && !isDisplayingComicPages },
@@ -25,12 +23,6 @@ struct AppRootView: View {
             }
         }
         .onChange(of: displayInspector) { _, newValue in
-            // Mark animation phase; delay reset to allow system animation to complete
-            isInspectorAnimating = true
-            // Estimate animation duration; adjust if needed
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                isInspectorAnimating = false
-            }
             if !newValue && !isEditingComic && !isDisplayingComicPages { selectedComic = nil }
         }
         .onChange(of: selectedComic) { _, newValue in

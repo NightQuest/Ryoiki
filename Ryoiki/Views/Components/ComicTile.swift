@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 
 /// A single comic tile showing a thumbnail placeholder and the comic's name.
 struct ComicTile: View {
@@ -47,8 +48,10 @@ struct ComicTile: View {
                         .fill(.quinary.opacity(0.4))
 
                     // Thumbnail: prefer explicit coverImage; fallback to earliest downloaded image
-                    if let data = comic.coverImage, let nsImage = NSImage(data: data) {
-                        Image(nsImage: nsImage)
+                    if let data = comic.coverImage,
+                       let src = CGImageSourceCreateWithData(data as CFData, nil),
+                       let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+                        Image(decorative: cgImage, scale: 1, orientation: .up)
                             .resizable()
                             .scaledToFit()
                             .clipShape(RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous))

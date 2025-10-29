@@ -1,14 +1,36 @@
 import SwiftUI
 import ImageIO
 
+actor ThumbnailInflightRegistry {
+    private var inflight = Set<NSURL>()
+    private var waiters: [NSURL: [CheckedContinuation<Image?, Never>]] = [:]
+
+    func tryStart(_ key: NSURL) -> Bool {
+        if inflight.contains(key) { return false }
+        inflight.insert(key)
+        waiters[key] = []
+        return true
+    }
+
+    func addWaiter(_ continuation: CheckedContinuation<Image?, Never>, for key: NSURL) {
+        waiters[key, default: []].append(continuation)
+    }
+
+    func finish(_ key: NSURL, with image: Image?) {
+        let continuations = waiters[key] ?? []
+        inflight.remove(key)
+        waiters[key] = nil
+        for c in continuations { c.resume(returning: image) }
+    }
+}
+
 // A lightweight cross‑platform thumbnail cache for local image URLs.
 // Uses CGImageSource thumbnail generation for speed and NSCache for reuse.
-@MainActor
 final class ThumbnailCache {
     static let shared = ThumbnailCache()
+    private static let inflightRegistry = ThumbnailInflightRegistry()
 
     private let cache = NSCache<NSURL, CGImage>()
-    private var inflight: [NSURL: [CheckedContinuation<Image?, Never>]] = [:]
 
     private init() {
         // Reasonable upper bound; adjust if your dataset is very large
@@ -29,42 +51,30 @@ final class ThumbnailCache {
             return Image(decorative: cg, scale: 1, orientation: .up)
         }
 
-        // Coalesce concurrent requests for the same URL
-        if inflight[key] != nil {
+        let isLeader = await ThumbnailCache.inflightRegistry.tryStart(key)
+        if !isLeader {
             return await withCheckedContinuation { continuation in
-                inflight[key, default: []].append(continuation)
+                Task { await ThumbnailCache.inflightRegistry.addWaiter(continuation, for: key) }
             }
         }
 
-        return await withCheckedContinuation { leader in
-            // Register leader; any subsequent callers will join above
-            inflight[key] = []
-            DispatchQueue.global(qos: .userInitiated).async {
-                let options: [CFString: Any] = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: Int(max(1, maxPixel)),
-                    kCGImageSourceCreateThumbnailWithTransform: true
-                ]
-                var resultImage: Image?
-                if let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-                   let thumb = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary) {
-                    let cg = thumb
-                    resultImage = Image(decorative: cg, scale: 1, orientation: .up)
-                    DispatchQueue.main.async { [weak self] in
-                        self?.cache.setObject(cg, forKey: key, cost: cg.bytesPerRow * cg.height)
-                    }
-                }
-                DispatchQueue.main.async { [weak self] in
-                    // Resume leader
-                    leader.resume(returning: resultImage)
-                    // Fan out to any waiters
-                    if let waiters = self?.inflight[key] {
-                        waiters.forEach { $0.resume(returning: resultImage) }
-                    }
-                    // Clear inflight entry
-                    self?.inflight[key] = nil
-                }
+        let resultImage: Image? = await Task.detached(priority: .userInitiated) {
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: Int(max(1, maxPixel)),
+                kCGImageSourceCreateThumbnailWithTransform: true
+            ]
+            guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let thumb = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary) else {
+                return nil
             }
-        }
+            DispatchQueue.main.async {
+                self.cache.setObject(thumb, forKey: key, cost: thumb.bytesPerRow * thumb.height)
+            }
+            return Image(decorative: thumb, scale: 1, orientation: .up)
+        }.value
+
+        await ThumbnailCache.inflightRegistry.finish(key, with: resultImage)
+        return resultImage
     }
 }

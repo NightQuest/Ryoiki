@@ -9,25 +9,20 @@ final class LibraryViewModel {
 
     @ObservationIgnored private var fetchTasks: [UUID: Task<Void, Never>] = [:]
     var fetchingComicIDs: Set<UUID> = []
-    var frozenBadgeCounts: [UUID: Int] = [:]
 
     @ObservationIgnored private var updateTasks: [UUID: Task<Void, Never>] = [:]
     var updatingComicIDs: Set<UUID> = []
-    var isUpdating: Bool { !updatingComicIDs.isEmpty }
 
     func isFetching(comic: Comic) -> Bool { fetchingComicIDs.contains(comic.id) }
-    func frozenCount(for comic: Comic) -> Int? { frozenBadgeCounts[comic.id] }
     func isUpdating(comic: Comic) -> Bool { updatingComicIDs.contains(comic.id) }
 
     // Start fetching pages for a given comic
     func fetch(comic: Comic, context: ModelContext) {
         guard fetchTasks[comic.id] == nil else { return }
         fetchingComicIDs.insert(comic.id)
-        frozenBadgeCounts[comic.id] = comic.dedupedPageCount
         fetchTasks[comic.id] = Task { @MainActor in
             defer {
                 fetchingComicIDs.remove(comic.id)
-                frozenBadgeCounts[comic.id] = nil
                 fetchTasks[comic.id] = nil
             }
             let cm = ComicManager()
@@ -112,8 +107,8 @@ final class LibraryViewModel {
             if oldName != input.name {
                 let fm = FileManager.default
                 let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                let oldFolder = docs.appendingPathComponent(sanitizeFilename(oldName))
-                let newFolder = docs.appendingPathComponent(sanitizeFilename(input.name))
+                let oldFolder = docs.appendingPathComponent(oldName.sanitizedForFileName())
+                let newFolder = docs.appendingPathComponent(input.name.sanitizedForFileName())
 
                 if fm.fileExists(atPath: oldFolder.path) {
                     if oldFolder != newFolder {

@@ -16,7 +16,7 @@ extension ComicManager {
         overwrite: Bool = false
     ) async throws -> Int {
         let fileManager = FileManager.default
-        let comicFolder = folder.appendingPathComponent(sanitizeFilename(comic.name))
+        let comicFolder = folder.appendingPathComponent(comic.name.sanitizedForFileName())
 
         if !fileManager.fileExists(atPath: comicFolder.path) {
             try fileManager.createDirectory(at: comicFolder, withIntermediateDirectories: true)
@@ -161,7 +161,7 @@ private extension ComicManager {
         guard let refererURL = URL(string: page.pageURL) else { return false }
 
         let index = naming.formattedIndex
-        let titlePart: String = page.title.isEmpty ? "" : " - " + sanitizeFilename(page.title)
+        let titlePart: String = page.title.isEmpty ? "" : " - " + page.title.sanitizedForFileName()
 
         // Data URL path
         if image.imageURL.hasPrefix("data:") {

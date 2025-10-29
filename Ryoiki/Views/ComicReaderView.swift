@@ -115,7 +115,6 @@ struct ComicReaderView: View {
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                 }
-                .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 0) }
                 .overlay(alignment: .topLeading) {
                     Button { dismiss() } label: {
                         HStack(spacing: 8) {
@@ -727,13 +726,7 @@ private struct ZoomablePage: View {
     }
 }
 
-// MARK: - Safe Array Subscript
-
-private extension Array {
-    subscript(safe index: Index) -> Element? {
-        indices.contains(index) ? self[index] : nil
-    }
-}
+// MARK: - Array chunking
 
 private extension Array {
     func chunked(into size: Int) -> [[Element]] {

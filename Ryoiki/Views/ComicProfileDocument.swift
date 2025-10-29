@@ -28,12 +28,13 @@ struct ComicProfileDocument: FileDocument {
 
     init(configuration: ReadConfiguration) throws {
         let raw = configuration.file.regularFileContents ?? Data()
-        // Validate structure without touching main-actor types
+        // Validate structure without touching actor-isolated Codable types
         let object = try JSONSerialization.jsonObject(with: raw, options: [])
         guard let dict = object as? [String: Any] else {
             throw ComicProfileValidationError.invalidFormat
         }
         let requiredKeys = [
+            "version",
             "name",
             "author",
             "descriptionText",
@@ -44,7 +45,7 @@ struct ComicProfileDocument: FileDocument {
             "selectorNext"
         ]
         for key in requiredKeys where dict[key] == nil { throw ComicProfileValidationError.missingKey(key) }
-        // Normalize with pretty printing (key order not guaranteed)
+        // Normalize with pretty printing
         let normalized = try JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted])
         self.data = normalized
     }

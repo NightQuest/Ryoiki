@@ -4,12 +4,9 @@ import SwiftData
 struct ComicGrid: View {
     let comics: [Comic]
     @Binding var selectedComic: Comic?
-    @Binding var isInspectorAnimating: Bool
     let itemsPerRowPreference: Int
-    let showBadges: Bool
     let fetchingComicIDs: Set<UUID>
     let updatingComicIDs: Set<UUID>
-    let frozenBadgeCounts: [UUID: Int]
 
     let onEdit: ((Comic) -> Void)?
     let onFetch: ((Comic) -> Void)?
@@ -28,49 +25,49 @@ struct ComicGrid: View {
         ScrollView {
             let columns: [GridItem] = computedColumns(itemsPerRowPreference: itemsPerRowPreference)
 
-            EntityGrid(
-                items: comics,
-                selectionManager: .constant(SelectionManager()),
-                onLayoutUpdate: { _, _, _ in },
-                columns: columns,
-                tile: { comic, _ in
-                    ComicTile(comic: comic,
-                              isSelected: selectedComic == comic,
-                              isFetching: fetchingComicIDs.contains(comic.id),
-                              isUpdating: updatingComicIDs.contains(comic.id),
-                              overridePageCount: undownloadedCount(for: comic))
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        selectedComic = comic
+            ZStack {
+                EntityGrid(
+                    items: comics,
+                    selectionManager: .constant(SelectionManager()),
+                    onLayoutUpdate: { _, _, _ in },
+                    columns: columns,
+                    tile: { comic, _ in
+                        ComicTile(comic: comic,
+                                  isSelected: selectedComic == comic,
+                                  isFetching: fetchingComicIDs.contains(comic.id),
+                                  isUpdating: updatingComicIDs.contains(comic.id),
+                                  overridePageCount: comic.undownloadedPageCount())
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedComic = comic }
+                    },
+                    contextMenu: { comic, _ in
+                        Group {
+                            Button { onOpenPages?(comic) } label: { Label("Images", systemImage: "square.grid.3x3") }
+                            Button { onEdit?(comic) } label: { Label("Edit", systemImage: "pencil") }
+                            Divider()
+                            Button { onFetch?(comic) } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
+                            Button { onUpdate?(comic) } label: { Label("Update", systemImage: "square.and.arrow.down") }
+                            Divider()
+                            Button(role: .destructive) {
+                                comicPendingCleanup = comic
+                                showCleanupAlert = true
+                            } label: { Label("Clear Data", systemImage: "trash.slash") }
+                            Button(role: .destructive) {
+                                comicPendingDelete = comic
+                                showDeleteAlert = true
+                            } label: { Label("Delete Comic…", systemImage: "trash") }
+                        }
                     }
-                },
-                contextMenu: { comic, _ in
-                    Group {
-                        Button { onOpenPages?(comic) } label: { Label("Images", systemImage: "square.grid.3x3") }
-                        Button { onEdit?(comic) } label: { Label("Edit", systemImage: "pencil") }
-                        Divider()
-                        Button { onFetch?(comic) } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
-                        Button { onUpdate?(comic) } label: { Label("Update", systemImage: "square.and.arrow.down") }
-                        Divider()
-                        Button(role: .destructive) {
-                            comicPendingCleanup = comic
-                            showCleanupAlert = true
-                        } label: { Label("Clear Data", systemImage: "trash.slash") }
-                        Button(role: .destructive) {
-                            comicPendingDelete = comic
-                            showDeleteAlert = true
-                        } label: { Label("Delete Comic…", systemImage: "trash") }
-                    }
-                }
-            )
-            .transaction { $0.animation = nil }
-            .background(
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        selectedComic = nil
-                    }
-            )
+                )
+                .transaction { $0.animation = nil }
+                .background(
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedComic = nil
+                        }
+                )
+            }
         }
         .alert("Delete \"\(comicPendingDelete?.name ?? "Comic")\"?", isPresented: $showDeleteAlert) {
             Button("Delete", role: .destructive) {
@@ -131,25 +128,5 @@ struct ComicGrid: View {
             // Fallback to adaptive when no preference is set
             return [GridItem(.adaptive(minimum: minTileWidth, maximum: 260), spacing: spacing, alignment: .top)]
         }
-    }
-
-    private func undownloadedCount(for comic: Comic) -> Int? {
-        let totalPages = comic.pages.count
-        if totalPages == 0 { return nil }
-        let fileManager = FileManager.default
-        let remainingPages = comic.pages.filter { page in
-            // A page is undownloaded if any of its images is missing or has an empty/non-existent downloadPath
-            for image in page.images {
-                if image.downloadPath.isEmpty { return true }
-                // Stored as absoluteString; try to construct URL and check existence
-                if let url = URL(string: image.downloadPath) {
-                    if !fileManager.fileExists(atPath: url.path) { return true }
-                } else {
-                    return true
-                }
-            }
-            return page.images.isEmpty // if no images, treat as undownloaded
-        }.count
-        return remainingPages == 0 ? nil : remainingPages
     }
 }

@@ -88,10 +88,4 @@ struct ComicImagesView: View {
                 .foregroundStyle(.secondary)
         }
     }
-
-    // MARK: - Layout
-
-    private var adaptiveColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 140, maximum: 260), spacing: Layout.gridSpacing, alignment: .top)]
-    }
 }

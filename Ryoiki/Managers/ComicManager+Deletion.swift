@@ -12,7 +12,7 @@ extension ComicManager {
     /// If the folder exists, it and all of its contents will be removed.
     func deleteDownloadFolder(for comic: Comic, in baseFolder: URL) {
         let fm = FileManager.default
-        let folder = baseFolder.appendingPathComponent(sanitizeFilename(comic.name))
+        let folder = baseFolder.appendingPathComponent(comic.name.sanitizedForFileName())
         if fm.fileExists(atPath: folder.path) { try? fm.removeItem(at: folder) }
     }
 }

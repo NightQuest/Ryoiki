@@ -143,8 +143,6 @@ struct GIFAnimatedImageView: View {
     let onFirstFrame: (() -> Void)?
 
     @State private var frames: [GIFFrame] = []
-    @State private var totalDuration: TimeInterval = 0
-    @State private var isLoadedFromCache: Bool = false
     @State private var didNotifyFirstFrame = false
 
     init(url: URL, contentMode: ContentMode = .fill, onFirstFrame: (() -> Void)? = nil) {
@@ -174,21 +172,16 @@ struct GIFAnimatedImageView: View {
         // If cached, use immediately (existing fast-path)
         if let cached = GIFFrameCache.shared.frames(for: url), !cached.isEmpty {
             frames = cached
-            totalDuration = cached.reduce(0) { $0 + $1.duration }
-            isLoadedFromCache = true
             DispatchQueue.main.async { onFirstFrame?() }
             return
         }
         Task.detached(priority: .userInitiated) {
             let loaded = await GIFDecoder.loadFramesCoalesced(from: url, maxDimension: 512)
-            let duration = loaded.reduce(0) { $0 + $1.duration }
             if !loaded.isEmpty {
                 await GIFFrameCache.shared.setFrames(loaded, for: url)
             }
             await MainActor.run {
                 frames = loaded
-                totalDuration = duration
-                isLoadedFromCache = false
                 if !loaded.isEmpty { onFirstFrame?() }
             }
         }
