@@ -145,4 +145,35 @@ final class LibraryViewModel {
             print("Failed to save edits:", error.localizedDescription)
         }
     }
+
+    // MARK: - Profile Export/Import
+
+    func makeProfile(for comic: Comic) -> ComicProfile {
+        ComicProfile(from: comic)
+    }
+
+    func exportProfileData(for comic: Comic) throws -> Data {
+        let profile = makeProfile(for: comic)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(profile)
+    }
+
+    func importProfileData(_ data: Data, context: ModelContext) throws -> Comic {
+        let decoder = JSONDecoder()
+        let profile = try decoder.decode(ComicProfile.self, from: data)
+        let comic = Comic(
+            name: profile.name,
+            author: profile.author,
+            descriptionText: profile.descriptionText,
+            url: profile.url,
+            firstPageURL: profile.firstPageURL,
+            selectorImage: profile.selectorImage,
+            selectorTitle: profile.selectorTitle,
+            selectorNext: profile.selectorNext
+        )
+        context.insert(comic)
+        try context.save()
+        return comic
+    }
 }

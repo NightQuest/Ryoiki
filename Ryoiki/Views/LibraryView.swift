@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @Environment(\.modelContext) private var context
@@ -13,6 +14,11 @@ struct LibraryView: View {
     @State private var viewModel = LibraryViewModel()
     @State private var pagesComic: Comic?
     @State private var isDisplayingReader: Bool = false
+    @State private var alertMessage: String?
+
+    @State private var exportDocument: ComicProfileDocument?
+    @State private var isExporting: Bool = false
+    @State private var isImporting: Bool = false
 
     @ViewBuilder
     private var LibraryContent: some View {
@@ -116,6 +122,21 @@ struct LibraryView: View {
             .buttonStyle(.bordered)
 
             Button {
+                prepareExportProfile()
+            } label: {
+                Label("Export Profile", systemImage: "square.and.arrow.up")
+            }
+            .disabled(externalSelectedComic == nil)
+            .buttonStyle(.bordered)
+
+            Button {
+                isImporting = true
+            } label: {
+                Label("Import Profile", systemImage: "square.and.arrow.down.on.square")
+            }
+            .buttonStyle(.bordered)
+
+            Button {
                 // Open the selected comic in the full-window reader
                 pagesComic = externalSelectedComic
                 isDisplayingReader = true
@@ -153,6 +174,30 @@ struct LibraryView: View {
         NavigationStack {
             LibraryContent
             .toolbar { toolbarContent }
+            .fileExporter(isPresented: $isExporting,
+                          document: exportDocument,
+                          contentType: .json,
+                          defaultFilename: exportDefaultFilename(),
+                          onCompletion: { result in
+                switch result {
+                case .success(let url):
+                    alertMessage = "Exported profile to \(url.lastPathComponent)."
+                case .failure(let error):
+                    alertMessage = "Failed to export: \(error.localizedDescription)"
+                }
+            })
+            .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
+                do {
+                    let urls = try result.get()
+                    if let url = urls.first {
+                        let data = try Data(contentsOf: url)
+                        _ = try viewModel.importProfileData(data, context: context)
+                        alertMessage = "Imported profile from \(url.lastPathComponent)."
+                    }
+                } catch {
+                    alertMessage = "Failed to import: \(error.localizedDescription)"
+                }
+            }
             .navigationDestination(isPresented: $viewModel.isAddingComic) {
                 ComicEditorView { input in
                     viewModel.addComic(input: input, context: context)
@@ -182,6 +227,12 @@ struct LibraryView: View {
                     ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
                 }
             }
+            .alert(item: Binding(
+                get: { alertMessage.map { IdentifiedString(message: $0) } },
+                set: { newVal in alertMessage = newVal?.message })
+            ) { item in
+                Alert(title: Text(item.message))
+            }
         }
     }
 
@@ -197,4 +248,30 @@ struct LibraryView: View {
         }
         return false
     }
+
+    private func prepareExportProfile() {
+        guard let comic = externalSelectedComic else { return }
+        do {
+            let data = try viewModel.exportProfileData(for: comic)
+            exportDocument = ComicProfileDocument(data: data)
+            isExporting = true
+        } catch {
+            alertMessage = "Failed to export: \(error.localizedDescription)"
+        }
+    }
+
+    private func exportDefaultFilename() -> String {
+        let base = externalSelectedComic?.name ?? "ComicProfile"
+        return sanitizeFilename(base) + ".json"
+    }
+
+    private func sanitizeFilename(_ name: String) -> String {
+        let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
+        return name.components(separatedBy: invalid).joined(separator: "_")
+    }
+}
+
+private struct IdentifiedString: Identifiable {
+    let id = UUID()
+    let message: String
 }
