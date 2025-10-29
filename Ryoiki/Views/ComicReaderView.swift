@@ -418,16 +418,32 @@ private struct ReaderPager: View {
             }
             .onChange(of: selection) { _, newValue in
                 guard newValue != displayedIndex else { return }
+
+                // Cancel any in-flight animation task and immediately settle the previous animation state.
                 animationTask?.cancel()
+                animationTask = nil
+                withAnimation(.none) {
+                    // Force settle whatever phase was in progress so we have a clean slate.
+                    phase = 0
+                    slideProgress = 1
+                }
+
+                // Start a fresh, cancelable animation sequence for the new selection.
                 animationTask = Task { @MainActor in
+                    if Task.isCancelled { return }
+
                     activeDirection = navDirection
+
                     // Slide out current content
                     phase = 1
                     slideProgress = 0
                     withAnimation(.easeIn(duration: 0.18)) {
                         slideProgress = 1
                     }
-                    try? await Task.sleep(nanoseconds: 180_000_000)
+
+                    // Wait for the slide-out to mostly complete, but bail if cancelled.
+                    do { try await Task.sleep(nanoseconds: 180_000_000) } catch { return }
+                    if Task.isCancelled { return }
 
                     // Swap content and slide in from the correct edge
                     displayedIndex = newValue
@@ -436,9 +452,12 @@ private struct ReaderPager: View {
                     withAnimation(.spring(response: 0.36, dampingFraction: 0.85)) {
                         slideProgress = 1
                     }
-                    try? await Task.sleep(nanoseconds: 360_000_000)
 
-                    // Settle
+                    // Wait for the slide-in to settle, but bail if cancelled.
+                    do { try await Task.sleep(nanoseconds: 360_000_000) } catch { return }
+                    if Task.isCancelled { return }
+
+                    // Final settle
                     phase = 0
                     slideProgress = 1
                 }
