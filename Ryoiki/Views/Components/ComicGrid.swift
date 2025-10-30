@@ -12,6 +12,7 @@ struct ComicGrid: View {
     let onFetch: ((Comic) -> Void)?
     let onUpdate: ((Comic) -> Void)?
     let onOpenPages: ((Comic) -> Void)?
+    let onRead: ((Comic) -> Void)?
 
     @Environment(\.modelContext) private var modelContext
 
@@ -42,6 +43,7 @@ struct ComicGrid: View {
                     },
                     contextMenu: { comic, _ in
                         Group {
+                            Button { onRead?(comic) } label: { Label("Read", systemImage: "book") }
                             Button { onOpenPages?(comic) } label: { Label("Images", systemImage: "square.grid.3x3") }
                             Button { onEdit?(comic) } label: { Label("Edit", systemImage: "pencil") }
                             Divider()

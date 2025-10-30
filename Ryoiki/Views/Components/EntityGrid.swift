@@ -155,6 +155,7 @@ struct TileTapGestures: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+#if os(macOS)
             .highPriorityGesture(
                 TapGesture().modifiers([.command, .shift])
                     .onEnded { selectionManager.unionWithRange(to: entityID) }
@@ -167,6 +168,7 @@ struct TileTapGestures: ViewModifier {
                 TapGesture().modifiers(.shift)
                     .onEnded { selectionManager.replaceWithRange(to: entityID) }
             )
+#endif
             .onTapGesture {
                 if selectionManager.selection == [entityID] {
                     selectionManager.toggleSelection(entityID)
@@ -182,6 +184,7 @@ struct SelectionDragGestures: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+#if os(macOS)
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0).modifiers(.command)
                     .onChanged { value in
@@ -206,6 +209,7 @@ struct SelectionDragGestures: ViewModifier {
                         selectionManager.endDrag(at: value.location)
                     }
             )
+#endif
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in

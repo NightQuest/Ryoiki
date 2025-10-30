@@ -6,29 +6,15 @@ struct AppRootView: View {
     @State private var displayInspector: Bool = false
     @State private var isEditingComic: Bool = false
     @State private var isDisplayingComicPages: Bool = false
+    @State private var isDisplayingComicReader: Bool = false
 
     var body: some View {
         ZStack {
             LibraryView(isEditingComic: $isEditingComic,
                         isDisplayingComicPages: $isDisplayingComicPages,
+                        isDisplayingReader: $isDisplayingComicReader,
                         externalSelectedComic: $selectedComic,
                         displayInspector: $displayInspector)
-        }
-        .inspector(isPresented: Binding<Bool>(
-            get: { displayInspector && !isEditingComic && !isDisplayingComicPages },
-            set: { newValue in displayInspector = newValue }
-        )) {
-            if let comic = selectedComic, !isEditingComic && !isDisplayingComicPages {
-                ComicDetailView(comic: comic, onClose: { selectedComic = nil })
-            }
-        }
-        .onChange(of: displayInspector) { _, newValue in
-            if !newValue && !isEditingComic && !isDisplayingComicPages { selectedComic = nil }
-        }
-        .onChange(of: selectedComic) { _, newValue in
-            if !isEditingComic {
-                displayInspector = newValue != nil
-            }
         }
         .onChange(of: isEditingComic) { _, editing in
             if !editing {
@@ -38,6 +24,34 @@ struct AppRootView: View {
         .onChange(of: isDisplayingComicPages) { _, viewing in
             if !viewing {
                 displayInspector = selectedComic != nil
+            }
+        }
+        .onChange(of: isDisplayingComicReader) { _, viewing in
+            if !viewing {
+                displayInspector = selectedComic != nil
+            }
+        }
+        .onChange(of: displayInspector) { _, newValue in
+            if !newValue && !isEditingComic && !isDisplayingComicPages && !isDisplayingComicReader {
+                selectedComic = nil
+            }
+        }
+        .onChange(of: selectedComic) { _, newValue in
+            if !isEditingComic && !isDisplayingComicPages && !isDisplayingComicReader {
+                displayInspector = newValue != nil
+            }
+        }
+        .inspector(isPresented: Binding<Bool>(
+            get: { displayInspector && !isEditingComic && !isDisplayingComicPages && !isDisplayingComicReader },
+            set: { newValue in
+                displayInspector = newValue &&
+                !isEditingComic &&
+                !isDisplayingComicPages &&
+                !isDisplayingComicReader
+            }
+        )) {
+            if let comic = selectedComic, !isEditingComic && !isDisplayingComicPages && !isDisplayingComicReader {
+                ComicDetailView(comic: comic, onClose: { selectedComic = nil })
             }
         }
     }

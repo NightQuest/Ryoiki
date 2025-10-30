@@ -24,6 +24,12 @@ struct RyoikiApp: App {
     }
 
     var body: some Scene {
+#if !os(macOS)
+        WindowGroup {
+            AppRootView()
+        }
+        .modelContainer(modelContainer)
+#else
         WindowGroup {
             AppRootView()
         }
@@ -31,7 +37,6 @@ struct RyoikiApp: App {
         .windowToolbarStyle(.expanded)
         .windowToolbarLabelStyle(fixed: .titleAndIcon)
 
-#if os(macOS)
         Settings {
             SettingsView()
         }

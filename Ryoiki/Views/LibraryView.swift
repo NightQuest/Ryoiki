@@ -7,12 +7,11 @@ struct LibraryView: View {
     @Query(sort: \Comic.name) private var comics: [Comic]
     @Binding var isEditingComic: Bool
     @Binding var isDisplayingComicPages: Bool
+    @Binding var isDisplayingReader: Bool
     @Binding var externalSelectedComic: Comic?
     @Binding var displayInspector: Bool
     @AppStorage(.settingsLibraryItemsPerRow) private var itemsPerRowPreference: Int = 6
     @State private var viewModel = LibraryViewModel()
-    @State private var pagesComic: Comic?
-    @State private var isDisplayingReader: Bool = false
     @State private var alertMessage: String?
 
     @State private var exportDocument: ComicProfileDocument?
@@ -51,11 +50,13 @@ struct LibraryView: View {
                 },
                 onOpenPages: { comic in
                     externalSelectedComic = comic
-                    if comic.hasAnyDownloadedImage() {
-                        pagesComic = comic
-                        isDisplayingComicPages = true
-                        displayInspector = false
-                    }
+                    isDisplayingComicPages = true
+                    displayInspector = false
+                },
+                onRead: { comic in
+                    externalSelectedComic = comic
+                    isDisplayingReader = true
+                    displayInspector = false
                 }
             )
         }
@@ -134,22 +135,21 @@ struct LibraryView: View {
 
             Button {
                 // Open the selected comic in the full-window reader
-                pagesComic = externalSelectedComic
                 isDisplayingReader = true
                 displayInspector = false
             } label: {
                 Label("Read", systemImage: "book")
             }
-            .disabled(!(externalSelectedComic?.hasAnyDownloadedImage() ?? false))
+            .disabled(externalSelectedComic == nil)
             .buttonStyle(.bordered)
 
             Button {
-                pagesComic = externalSelectedComic
                 isDisplayingComicPages = true
+                displayInspector = false
             } label: {
                 Label("Images", systemImage: "square.grid.3x3")
             }
-            .disabled(!(externalSelectedComic?.hasAnyDownloadedImage() ?? false))
+            .disabled(externalSelectedComic == nil)
             .buttonStyle(.bordered)
 
             Spacer()
@@ -210,14 +210,14 @@ struct LibraryView: View {
                 }
             }
             .navigationDestination(isPresented: $isDisplayingComicPages) {
-                if let comic = pagesComic {
+                if let comic = externalSelectedComic {
                     ComicImagesView(comic: comic)
                 } else {
                     ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
                 }
             }
             .navigationDestination(isPresented: $isDisplayingReader) {
-                if let comic = pagesComic {
+                if let comic = externalSelectedComic {
                     ComicReaderView(comic: comic)
                 } else {
                     ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
