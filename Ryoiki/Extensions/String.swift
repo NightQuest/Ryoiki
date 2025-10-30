@@ -24,4 +24,9 @@ extension String {
         let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
         return components(separatedBy: invalid).joined(separator: "_")
     }
+
+    /// Returns the string encoding enum
+    var textEncodingToStringEncoding: Encoding {
+        Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringConvertIANACharSetNameToEncoding(self as CFString)))
+    }
 }

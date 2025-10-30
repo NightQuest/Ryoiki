@@ -12,11 +12,25 @@ func fetchAndParse(url: URL,
     guard (200..<300).contains(response.statusCode) else {
         throw ComicManager.Error.badStatus(response.statusCode)
     }
-    guard let htmlString = String(data: data, encoding: .utf8) else {
+
+    guard let textEncoding: String = response.textEncodingName else { throw ComicManager.Error.parse }
+    var htmlString: String?
+
+    if let text = String(data: data, encoding: textEncoding.textEncodingToStringEncoding) {
+        htmlString = text
+    } else if let text = String(data: data, encoding: .utf8) {
+        htmlString = text
+    } else if let text = String(data: data, encoding: .macOSRoman) {
+        htmlString = text
+    } else if let text = String(data: data, encoding: .ascii) {
+        htmlString = text
+    }
+
+    guard htmlString != nil else {
         throw ComicManager.Error.parse
     }
 
-    let doc = try SwiftSoup.parse(htmlString, url.absoluteString)
+    let doc = try SwiftSoup.parse(htmlString!, url.absoluteString)
     let title = parseTitle(in: doc, selector: selectorTitle)
     let imageURLs = doc.imageURLs(selector: selectorImage, baseURL: url)
 
