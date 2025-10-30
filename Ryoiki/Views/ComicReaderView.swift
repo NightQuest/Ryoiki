@@ -398,6 +398,7 @@ private struct ReaderPager: View {
                     .blur(radius: blurVal)
                     .shadow(color: Color.black.opacity(shadowOpacity), radius: shadowRadius, x: 0, y: 4)
                     .rotation3DEffect(.degrees(rotationDeg), axis: (x: 0, y: 1, z: 0), perspective: 0.7)
+                    .id(url)
                 } else {
                     ReaderPlaceholder(maxWidth: proxy.size.width, maxHeight: proxy.size.height)
                         .frame(width: proxy.size.width, height: proxy.size.height)
@@ -407,6 +408,7 @@ private struct ReaderPager: View {
                         .blur(radius: blurVal)
                         .shadow(color: Color.black.opacity(shadowOpacity), radius: shadowRadius, x: 0, y: 4)
                         .rotation3DEffect(.degrees(rotationDeg), axis: (x: 0, y: 1, z: 0), perspective: 0.7)
+                        .id("placeholder-\(displayedIndex)")
                 }
             }
             .onAppear {
@@ -446,6 +448,8 @@ private struct ReaderPager: View {
 
                     // Swap content and slide in from the correct edge
                     displayedIndex = newValue
+                    isZoomed = false
+
                     phase = 2
                     slideProgress = 0
                     withAnimation(.spring(response: 0.36, dampingFraction: 0.85)) {
@@ -592,6 +596,13 @@ private struct ZoomablePage: View {
                     .frame(maxWidth: maxWidth, maxHeight: maxHeight)
                     .scaleEffect(zoom.scale)
                     .offset(zoom.offset)
+                    .id(url)
+                    .onAppear {
+                        imageAspect = nil
+                        zoom.reset()
+                        requestedFullRes = false
+                        useFullRes = false
+                    }
                 } else {
                     CGImageLoader(
                         url: url,
@@ -624,6 +635,7 @@ private struct ZoomablePage: View {
                             }
                         }
                     )
+                    .id(url)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
