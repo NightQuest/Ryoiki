@@ -5,6 +5,9 @@ struct ComicDetailView: View {
     let comic: Comic
     var onClose: (() -> Void)?
 
+    @State private var frozenPageCount: Int?
+    @State private var frozenImageCount: Int?
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -16,12 +19,14 @@ struct ComicDetailView: View {
                     LabeledContent("Author", value: comic.author)
                 }
 
-                if !comic.pages.isEmpty {
-                    LabeledContent("Pages", value: String(comic.dedupedPageCount))
+                if !(comic.pages.isEmpty) {
+                    let count = frozenPageCount ?? comic.dedupedPageCount
+                    LabeledContent("Pages", value: String(count))
                 }
 
-                if !comic.pages.isEmpty {
-                    LabeledContent("Images", value: String(comic.imageCount))
+                if !(comic.pages.isEmpty) {
+                    let count = frozenImageCount ?? comic.imageCount
+                    LabeledContent("Images", value: String(count))
                 }
 
                 if !comic.descriptionText.isEmpty {
@@ -47,6 +52,14 @@ struct ComicDetailView: View {
                 }
             }
             .padding()
+            .onDisappear {
+                frozenPageCount = nil
+                frozenImageCount = nil
+            }
+            .task {
+                if frozenPageCount == nil { frozenPageCount = comic.dedupedPageCount }
+                if frozenImageCount == nil { frozenImageCount = comic.imageCount }
+            }
         }
         .navigationTitle(comic.name)
         .toolbar {

@@ -8,7 +8,74 @@ import SwiftData
 
 // MARK: - Image Downloading
 extension ComicManager {
-    // Heavy I/O is performed off-main; model writes hop to main actor.
+    private struct DownloadResult {
+        let imageID: UUID
+        let fileURLString: String
+        let coverData: Data?
+        let wrote: Bool
+    }
+
+    private func downloadAsset(
+        page: ComicPage,
+        image: ComicImage,
+        comicFolder: URL,
+        overwrite: Bool,
+        naming: PageNamingContext
+    ) async throws -> DownloadResult {
+        let fileManager = FileManager.default
+        guard let refererURL = URL(string: page.pageURL) else { return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false) }
+
+        let index = naming.formattedIndex
+        let titlePart: String = page.title.isEmpty ? "" : " - " + page.title.sanitizedForFileName()
+
+        // Data URL path
+        if image.imageURL.hasPrefix("data:") {
+            guard let (mediatype, data) = decodeDataURL(image.imageURL) else {
+                return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false)
+            }
+            let ext = fileExtension(contentType: mediatype, urlExtension: nil, fallback: "png")
+            let fileName = "\(index)\(titlePart).\(ext)"
+            let fileURL = comicFolder.appendingPathComponent(fileName)
+
+            if !overwrite && fileManager.fileExists(atPath: fileURL.path) {
+                return .init(imageID: image.id, fileURLString: fileURL.absoluteString, coverData: nil, wrote: false)
+            }
+
+            try data.write(to: fileURL, options: [])
+            let coverData = (page.comic.coverImage == nil) ? data : nil
+            return .init(imageID: image.id, fileURLString: fileURL.absoluteString, coverData: coverData, wrote: true)
+        }
+
+        // Network image path
+        guard let imageURL = URL(string: image.imageURL) else { return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false) }
+        do {
+            let (tempURL, response) = try await http.downloadToTemp(url: imageURL, referer: refererURL)
+            guard (200..<300).contains(response.statusCode) else {
+                try? fileManager.removeItem(at: tempURL)
+                return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false)
+            }
+            let contentType = response.value(forHTTPHeaderField: "Content-Type")
+            let ext = fileExtension(contentType: contentType, urlExtension: imageURL.pathExtension, fallback: "png")
+
+            let fileName = "\(index)\(titlePart).\(ext)"
+            let fileURL = comicFolder.appendingPathComponent(fileName)
+
+            defer { try? fileManager.removeItem(at: tempURL) }
+
+            if !overwrite && fileManager.fileExists(atPath: fileURL.path) {
+                return .init(imageID: image.id, fileURLString: fileURL.absoluteString, coverData: nil, wrote: false)
+            }
+            if overwrite && fileManager.fileExists(atPath: fileURL.path) { try? fileManager.removeItem(at: fileURL) }
+
+            try fileManager.moveItem(at: tempURL, to: fileURL)
+            let coverData = (page.comic.coverImage == nil) ? (try? Data(contentsOf: fileURL)) : nil
+            return .init(imageID: image.id, fileURLString: fileURL.absoluteString, coverData: coverData, wrote: true)
+        } catch let clientError as HTTPClientError {
+            if case .cancelled = clientError { return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false) }
+            throw clientError
+        }
+    }
+
     func downloadImages(
         for comic: Comic,
         to folder: URL,
@@ -42,6 +109,9 @@ extension ComicManager {
             page.images.map { (page, $0) }
         }
 
+        var imageByID: [UUID: ComicImage] = [:]
+        for (_, img) in allPairs { imageByID[img.id] = img }
+
         // Position map is 1-based position of each (pageURL,imageURL) within its group (ordered by page.index then image.index)
         var positionByCompositeKey: [String: Int] = [:]
         for (_, pages) in groupsByURL {
@@ -71,21 +141,19 @@ extension ComicManager {
         var filesWritten = 0
         let maxConcurrent = 6 // Be nice to remote servers
 
-        // Parallelize downloads with limited concurrency. Model writes hop to MainActor in handlePageDownload.
-        try await withThrowingTaskGroup(of: Bool.self) { group in
+        try await withThrowingTaskGroup(of: DownloadResult.self) { group in
             var iterator = availablePairs.makeIterator()
 
-            // Seed initial tasks up to the concurrency limit
-            for _ in 0..<min(maxConcurrent, availablePairs.count) {
-                guard let (page, image) = iterator.next() else { break }
+            // Helper to enqueue the next download task if available
+            func enqueueNext() {
+                guard let (page, image) = iterator.next() else { return }
                 let baseIndex = page.index
                 let groupCount = groupCountByURL[page.pageURL] ?? 1
                 let compositeKey = "\(page.pageURL)|\(image.imageURL)"
                 let subNumber = positionByCompositeKey[compositeKey]
                 let naming = PageNamingContext(baseIndex: baseIndex, groupCount: groupCount, subNumber: subNumber)
-
                 group.addTask {
-                    try await handlePageDownload(
+                    try await downloadAsset(
                         page: page,
                         image: image,
                         comicFolder: comicFolder,
@@ -95,124 +163,59 @@ extension ComicManager {
                 }
             }
 
-            // For each finished task, enqueue the next pair, maintaining the concurrency window
-            while let wrote = try await group.next() {
-                if wrote { filesWritten += 1 }
-
-                if let (page, image) = iterator.next() {
-                    let baseIndex = page.index
-                    let groupCount = groupCountByURL[page.pageURL] ?? 1
-                    let compositeKey = "\(page.pageURL)|\(image.imageURL)"
-                    let subNumber = positionByCompositeKey[compositeKey]
-                    let naming = PageNamingContext(baseIndex: baseIndex, groupCount: groupCount, subNumber: subNumber)
-
-                    group.addTask {
-                        try await handlePageDownload(
-                            page: page,
-                            image: image,
-                            comicFolder: comicFolder,
-                            overwrite: overwrite,
-                            naming: naming
-                        )
+            // Helper to apply a finished result to the model and persist periodically
+            func processResult(_ result: DownloadResult) throws {
+                if result.wrote { filesWritten += 1 }
+                if let imageRef = imageByID[result.imageID] {
+                    imageRef.downloadPath = result.fileURLString
+                    if let cover = result.coverData, imageRef.comicPage.comic.coverImage == nil {
+                        imageRef.comicPage.comic.coverImage = cover
                     }
                 }
+                // Periodic persistence to avoid losing progress on large batches
+                if result.wrote && (filesWritten % 50 == 0) {
+                    try context.save()
+                }
+            }
+
+            // Seed initial tasks up to the concurrency limit
+            for _ in 0..<min(maxConcurrent, availablePairs.count) { enqueueNext() }
+
+            // Drain tasks; enqueue one-for-one to maintain the window
+            while let result = try await group.next() {
+                try processResult(result)
+                enqueueNext()
             }
         }
+
+        try context.save()
 
         return filesWritten
     }
 }
 
 // MARK: - Download Helpers
-private extension ComicManager {
-    struct PageNamingContext {
-        let baseIndex: Int
-        let groupCount: Int
-        let subNumber: Int?
+private struct PageNamingContext {
+    let baseIndex: Int
+    let groupCount: Int
+    let subNumber: Int?
 
-        let formattedIndex: String
+    let formattedIndex: String
 
-        init(baseIndex: Int, groupCount: Int, subNumber: Int?) {
-            self.baseIndex = baseIndex
-            self.groupCount = groupCount
-            self.subNumber = subNumber
+    nonisolated init(baseIndex: Int, groupCount: Int, subNumber: Int?) {
+        self.baseIndex = baseIndex
+        self.groupCount = groupCount
+        self.subNumber = subNumber
 
-            var formattedIndex = String(format: "%05d", baseIndex)
-            if groupCount > 1 {
-                let postSuffix = String(max(1, subNumber ?? 1))
+        // Zero-pad baseIndex to width 5 without using String(format:)
+        let baseString = String(baseIndex)
+        let paddingCount = max(0, 5 - baseString.count)
+        var formattedIndex = String(repeating: "0", count: paddingCount) + baseString
 
-                formattedIndex += ("-" +
-                                  String(repeating: "0", count: postSuffix.count - 1) +
-                                  postSuffix)
-
-            }
-            self.formattedIndex = formattedIndex
+        if groupCount > 1 {
+            let postSuffix = String(max(1, subNumber ?? 1))
+            formattedIndex += ("-" + String(repeating: "0", count: max(0, postSuffix.count - 1)) + postSuffix)
         }
-    }
-
-    // This updates model properties; must be on main actor when touching models.
-    func handlePageDownload(page: ComicPage,
-                            image: ComicImage,
-                            comicFolder: URL,
-                            overwrite: Bool,
-                            naming: PageNamingContext) async throws -> Bool {
-        let fileManager = FileManager.default
-
-        guard let refererURL = URL(string: page.pageURL) else { return false }
-
-        let index = naming.formattedIndex
-        let titlePart: String = page.title.isEmpty ? "" : " - " + page.title.sanitizedForFileName()
-
-        // Data URL path
-        if image.imageURL.hasPrefix("data:") {
-            guard let (mediatype, data) = decodeDataURL(image.imageURL) else { return false }
-            let ext = fileExtension(contentType: mediatype, urlExtension: nil, fallback: "png")
-            let fileName = "\(index)\(titlePart).\(ext)"
-            let fileURL = comicFolder.appendingPathComponent(fileName)
-
-            if !overwrite && fileManager.fileExists(atPath: fileURL.path) { return true }
-
-            try data.write(to: fileURL, options: [])
-            await MainActor.run { image.downloadPath = fileURL.absoluteString }
-            await MainActor.run {
-                if page.comic.coverImage == nil, let data = try? Data(contentsOf: fileURL) {
-                    page.comic.coverImage = data
-                }
-            }
-            return true
-        }
-
-        // Network image path
-        guard let imageURL = URL(string: image.imageURL) else { return false }
-        do {
-            let (tempURL, response) = try await http.downloadToTemp(url: imageURL, referer: refererURL)
-            guard (200..<300).contains(response.statusCode) else {
-                try? fileManager.removeItem(at: tempURL)
-                return false
-            }
-            let contentType = response.value(forHTTPHeaderField: "Content-Type")
-            let ext = fileExtension(contentType: contentType, urlExtension: imageURL.pathExtension, fallback: "png")
-
-            let fileName = "\(index)\(titlePart).\(ext)"
-            let fileURL = comicFolder.appendingPathComponent(fileName)
-
-            defer { try? fileManager.removeItem(at: tempURL) }
-
-            if !overwrite && fileManager.fileExists(atPath: fileURL.path) { return true }
-            if overwrite && fileManager.fileExists(atPath: fileURL.path) { try? fileManager.removeItem(at: fileURL) }
-
-            try fileManager.moveItem(at: tempURL, to: fileURL)
-            await MainActor.run { image.downloadPath = fileURL.absoluteString }
-            await MainActor.run {
-                if page.comic.coverImage == nil, let data = try? Data(contentsOf: fileURL) {
-                    page.comic.coverImage = data
-                }
-            }
-            return true
-        } catch let clientError as HTTPClientError {
-            // Swallow cancellations silently; propagate other errors
-            if case .cancelled = clientError { return false }
-            throw clientError
-        }
+        self.formattedIndex = formattedIndex
     }
 }

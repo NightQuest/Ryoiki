@@ -18,24 +18,53 @@ final class LibraryViewModel {
 
     // Start fetching pages for a given comic
     func fetch(comic: Comic, context: ModelContext) {
+        // Avoid duplicate tasks
         guard fetchTasks[comic.id] == nil else { return }
+
+        // Record UI state on main actor
         fetchingComicIDs.insert(comic.id)
-        fetchTasks[comic.id] = Task { @MainActor in
-            defer {
-                fetchingComicIDs.remove(comic.id)
-                fetchTasks[comic.id] = nil
+
+        // Capture only what we need for background work
+        let comicID = comic.id
+        // Create a background context from the same container
+        let container = context.container
+
+        let task = Task.detached(priority: .userInitiated) { [weak self] in
+            // Build background context and disable autosave for batch work
+            let bgContext = ModelContext(container)
+            bgContext.autosaveEnabled = false
+
+            // Resolve the comic in the background context by ID to avoid cross-context object usage
+            // If resolution fails, we bail early (comic might have been deleted)
+            guard let bgComic = try? bgContext.fetch(FetchDescriptor<Comic>(predicate: #Predicate { $0.id == comicID })).first else {
+                await MainActor.run { [weak self] in
+                    self?.fetchingComicIDs.remove(comicID)
+                    self?.fetchTasks[comicID] = nil
+                }
+                return
             }
-            let cm = ComicManager()
+
+            let cm = await MainActor.run { ComicManager() }
             do {
-                _ = try await cm.fetchPages(for: comic, context: context)
+                // Perform heavy work off-main
+                _ = try await cm.fetchPages(for: bgComic, context: bgContext)
             } catch is CancellationError {
-                // Fetch cancelled by user
+                // Swallow cancellation
             } catch let urlError as URLError where urlError.code == .cancelled {
-                // Network task cancelled by user
+                // Network cancelled
             } catch {
                 print("Fetch failed: \(error)")
             }
+
+            // Clear UI state back on main actor
+            await MainActor.run { [weak self] in
+                self?.fetchingComicIDs.remove(comicID)
+                self?.fetchTasks[comicID] = nil
+            }
         }
+
+        // Track the task on main actor
+        fetchTasks[comic.id] = task
     }
 
     // Cancel an in-flight fetch for a specific comic
@@ -45,25 +74,47 @@ final class LibraryViewModel {
 
     // Start updating (downloading) images for a given comic to the documents directory
     func update(comic: Comic, context: ModelContext) {
+        // Avoid duplicate tasks
         guard updateTasks[comic.id] == nil else { return }
+
+        // Record UI state on main actor
         updatingComicIDs.insert(comic.id)
-        updateTasks[comic.id] = Task { @MainActor in
-            defer {
-                updatingComicIDs.remove(comic.id)
-                updateTasks[comic.id] = nil
+
+        let comicID = comic.id
+        let container = context.container
+
+        let task = Task.detached(priority: .userInitiated) { [weak self] in
+            let bgContext = ModelContext(container)
+            bgContext.autosaveEnabled = false
+
+            // Resolve comic in background context
+            guard let bgComic = try? bgContext.fetch(FetchDescriptor<Comic>(predicate: #Predicate { $0.id == comicID })).first else {
+                await MainActor.run { [weak self] in
+                    self?.updatingComicIDs.remove(comicID)
+                    self?.updateTasks[comicID] = nil
+                }
+                return
             }
-            let cm = ComicManager()
+
+            let cm = await MainActor.run { ComicManager() }
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
             do {
-                _ = try await cm.downloadImages(for: comic, to: docs, context: context, overwrite: false)
+                _ = try await cm.downloadImages(for: bgComic, to: docs, context: bgContext, overwrite: false)
             } catch is CancellationError {
-                // Update cancelled by user
+                // Swallow cancellation
             } catch let urlError as URLError where urlError.code == .cancelled {
-                // Network task cancelled by user
+                // Network cancelled
             } catch {
                 print("Update failed: \(error)")
             }
+
+            await MainActor.run { [weak self] in
+                self?.updatingComicIDs.remove(comicID)
+                self?.updateTasks[comicID] = nil
+            }
         }
+
+        updateTasks[comic.id] = task
     }
 
     // Cancel an in-flight update for a specific comic

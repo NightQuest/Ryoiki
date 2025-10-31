@@ -34,7 +34,6 @@ extension ComicManager {
         return false
     }
 
-    @MainActor
     func applyPendingPages(state: inout FetchState, env: FetchEnv) throws {
         guard !state.pendingPages.isEmpty else { return }
 
@@ -67,7 +66,7 @@ extension ComicManager {
 
     func finalizeIfNeeded(state: inout FetchState, env: FetchEnv, force: Bool = false) async throws {
         if force || state.preparedSinceLastCommit >= state.commitThreshold {
-            try await MainActor.run { try applyPendingPages(state: &state, env: env) }
+            try applyPendingPages(state: &state, env: env)
             state.preparedSinceLastCommit = 0
             await Task.yield()
         }
@@ -77,27 +76,23 @@ extension ComicManager {
         guard state.initiallyEmpty, !state.didSetCoverAtFetchTime, let firstImageURL = parsed.imageURLs.first else { return }
         do {
             let data = try await getData(firstImageURL, referer: referer)
-            await MainActor.run {
-                if env.comic.coverImage == nil {
-                    env.comic.coverImage = data
-                    try? env.context.save()
-                }
+            if env.comic.coverImage == nil {
+                env.comic.coverImage = data
+                try? env.context.save()
             }
             state.didSetCoverAtFetchTime = true
         } catch { }
     }
 
     func prepareBatch(from parsed: CMTypes.ParseResult, at url: URL, maxPages: Int?, state: FetchState) async throws -> CMTypes.PreparationResult {
-        try await MainActor.run {
-            let input = CMTypes.PreparationInput(
-                currentPageURL: url,
-                startingIndex: state.currentMaxIndex,
-                titleText: parsed.title,
-                maxPages: maxPages.map { $0 - state.pagesAdded },
-                existingPairKeys: state.existingPairKeys
-            )
-            return try preparePagesWithoutInserting(from: parsed.imageURLs, input: input)
-        }
+        let input = CMTypes.PreparationInput(
+            currentPageURL: url,
+            startingIndex: state.currentMaxIndex,
+            titleText: parsed.title,
+            maxPages: maxPages.map { $0 - state.pagesAdded },
+            existingPairKeys: state.existingPairKeys
+        )
+        return try preparePagesWithoutInserting(from: parsed.imageURLs, input: input)
     }
 
     func stepOnce(maxPages: Int?, selectors: Selectors, env: FetchEnv, state: inout FetchState) async throws -> StepOutcome {
