@@ -21,14 +21,66 @@ public struct HTTPClient: HTTPClientProtocol {
     private let rateLimiter: RateLimiter
     private let userAgent: String
 
-    public init(session: URLSession = .shared, userAgent: String = defaultUserAgent) {
+    public init() {
+        let ua = UserDefaults.standard.string(forKey: .settingsNetworkUserAgent) ?? defaultUserAgent
+        let perHost = max(1, UserDefaults.standard.integer(forKey: .settingsNetworkPerHost))
+        let config = URLSessionConfiguration.default
+        // Be gentle to servers; align with download concurrency
+        config.httpMaximumConnectionsPerHost = perHost
+        // Enable a small cache to avoid re-fetching pages that are cacheable
+        config.requestCachePolicy = .useProtocolCachePolicy
+        config.urlCache = URLCache(
+            memoryCapacity: 16 * 1024 * 1024,   // 16 MB
+            diskCapacity: 128 * 1024 * 1024,    // 128 MB
+            diskPath: "RyoikiURLCache"
+        )
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 120
+        let session = URLSession(configuration: config)
+        self.init(session: session, userAgent: ua)
+    }
+
+    @usableFromInline
+    internal static func makeDefaultSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        // Be gentle to servers; align with download concurrency
+        config.httpMaximumConnectionsPerHost = 6
+        // Enable a small cache to avoid re-fetching pages that are cacheable
+        config.requestCachePolicy = .useProtocolCachePolicy
+        config.urlCache = URLCache(
+            memoryCapacity: 16 * 1024 * 1024,   // 16 MB
+            diskCapacity: 128 * 1024 * 1024,    // 128 MB
+            diskPath: "RyoikiURLCache"
+        )
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 120
+        return URLSession(configuration: config)
+    }
+
+    @usableFromInline
+    internal static func makeBackgroundSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        // Align with polite defaults; mirror makeDefaultSession where appropriate
+        config.httpMaximumConnectionsPerHost = 6
+        config.requestCachePolicy = .useProtocolCachePolicy
+        config.urlCache = URLCache(
+            memoryCapacity: 16 * 1024 * 1024,
+            diskCapacity: 128 * 1024 * 1024,
+            diskPath: "RyoikiURLCache"
+        )
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 120
+        return URLSession(configuration: config)
+    }
+
+    public init(session: URLSession = HTTPClient.makeDefaultSession(), userAgent: String = defaultUserAgent) {
         self.session = session
         self.rateLimiter = .shared
         self.userAgent = userAgent
     }
 
     public init(userAgent: String) {
-        self.session = .shared
+        self.session = HTTPClient.makeDefaultSession()
         self.rateLimiter = .shared
         self.userAgent = userAgent
     }

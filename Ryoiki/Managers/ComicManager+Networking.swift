@@ -11,22 +11,49 @@ extension ComicManager {
     func html(from url: URL, referer: URL? = nil) async throws -> String {
         do {
             let (data, response) = try await http.get(url, referer: referer)
+
             guard (200..<300).contains(response.statusCode) else { throw Error.badStatus(response.statusCode) }
 
             var htmlString: String?
 
+            // 1) Honor server-declared encoding if present
             if let textEncoding: String = response.textEncodingName,
                let text = String(data: data, encoding: textEncoding.textEncodingToStringEncoding) {
                 htmlString = text
-            } else if let text = String(data: data, encoding: .utf8) {
+            }
+
+            // 2) Common fast-path fallback: UTF-8
+            if htmlString == nil, let text = String(data: data, encoding: .utf8) {
                 htmlString = text
-            } else if let text = String(data: data, encoding: .macOSRoman) {
+            }
+
+            // 3) Heuristic detection using Foundation (platform-agnostic)
+            if htmlString == nil {
+                var usedLossy: ObjCBool = false
+                var converted: NSString?
+                let enc = NSString.stringEncoding(
+                    for: data,
+                    encodingOptions: nil,
+                    convertedString: &converted,
+                    usedLossyConversion: &usedLossy
+                )
+                if enc != 0, let s = converted as String? {
+                    htmlString = s
+                }
+            }
+
+            // 4) Last-resort legacy fallbacks
+            if htmlString == nil, let text = String(data: data, encoding: .macOSRoman) {
                 htmlString = text
-            } else if let text = String(data: data, encoding: .ascii) {
+            }
+            if htmlString == nil, let text = String(data: data, encoding: .ascii) {
                 htmlString = text
             }
 
             guard htmlString != nil else {
+                #if DEBUG
+                print("Failed to decode HTML for: \(url.absoluteString). Size: \(data.count) bytes")
+                #endif
                 throw ComicManager.Error.parse
             }
 

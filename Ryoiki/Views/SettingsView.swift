@@ -22,6 +22,9 @@ struct SettingsView: View {
 
 struct GeneralSettingsView: View {
     @AppStorage(.settingsLibraryItemsPerRow) private var itemsPerRowPreference: Int = 6
+    @AppStorage(.settingsNetworkUserAgent) private var userAgent: String = defaultUserAgent
+    @AppStorage(.settingsDownloadMaxConcurrent) private var maxConcurrentDownloads: Int = 10
+    @AppStorage(.settingsNetworkPerHost) private var maxConnectionsPerHost: Int = 6
 
     var body: some View {
         Form {
@@ -31,6 +34,19 @@ struct GeneralSettingsView: View {
                             value: $itemsPerRowPreference,
                             in: 2...10,
                             step: 1)
+                }
+            }
+            Section("Network") {
+                LabeledContent("User-Agent") {
+                    TextField("User-Agent", text: $userAgent)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 240)
+                }
+                LabeledContent("Max concurrent downloads") {
+                    Stepper(String(maxConcurrentDownloads), value: $maxConcurrentDownloads, in: 1...24, step: 1)
+                }
+                LabeledContent("Max connections per host") {
+                    Stepper(String(maxConnectionsPerHost), value: $maxConnectionsPerHost, in: 1...12, step: 1)
                 }
             }
         }

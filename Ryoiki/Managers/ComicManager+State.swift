@@ -37,8 +37,8 @@ extension ComicManager {
     func applyPendingPages(state: inout FetchState, env: FetchEnv) throws {
         guard !state.pendingPages.isEmpty else { return }
 
-        // Determine the starting sequential page number (continue from current max in DB)
-        var nextPageNumber = (env.comic.pages.max(by: { $0.index < $1.index })?.index ?? 0) + 1
+        // Determine the starting sequential page number (continue from current max index in state)
+        var nextPageNumber = state.currentMaxIndex + 1
 
         // Assign a normalized, sequential page number per unique pageURL within the pending batch
         var pageNumberByURL: [String: Int] = [:]
@@ -47,26 +47,65 @@ extension ComicManager {
             nextPageNumber += 1
         }
 
-        // Insert pages using the normalized page index so DB matches on-disk naming
+        // Group specs by pageURL in order of appearance so multiple images share the same page
+        var groups: [(pageURL: String, specs: [CMTypes.PageSpec])] = []
+        var seen: Set<String> = []
         for spec in state.pendingPages {
-            let normalizedIndex = pageNumberByURL[spec.pageURL] ?? spec.index
+            if !seen.contains(spec.pageURL) {
+                seen.insert(spec.pageURL)
+                groups.append((pageURL: spec.pageURL, specs: []))
+            }
+            // Append to the group's specs
+            if let idx = groups.firstIndex(where: { $0.pageURL == spec.pageURL }) {
+                groups[idx].specs.append(spec)
+            }
+        }
+
+        let newUniquePageCount = groups.count
+        var imagesAddedInBatch = 0
+        var lastAssignedPageIndex = state.currentMaxIndex
+
+        // Insert one page per unique URL; append all images with per-page indices
+        for group in groups {
+            let normalizedIndex = pageNumberByURL[group.pageURL] ?? state.currentMaxIndex + 1
+            lastAssignedPageIndex = max(lastAssignedPageIndex, normalizedIndex)
+
+            // Use the first title in the group; fall back to empty if none
+            let title = group.specs.first?.title ?? ""
             let page = ComicPage(
                 comic: env.comic,
                 index: normalizedIndex,
-                title: spec.title,
-                pageURL: spec.pageURL
+                title: title,
+                pageURL: group.pageURL
             )
-            let image = ComicImage(comicPage: page, index: 0, imageURL: spec.imageURL)
-            page.images.append(image)
+
+            // Create images with indices 0..n-1 in the order they appeared
+            for (i, spec) in group.specs.enumerated() {
+                let image = ComicImage(comicPage: page, index: i, imageURL: spec.imageURL)
+                image.pageURL = page.pageURL
+                page.images.append(image)
+                imagesAddedInBatch += 1
+            }
+
             env.context.insert(page)
         }
+
+        // Update cached counts
+        env.comic.imageCount += imagesAddedInBatch
+        env.comic.pageCount += newUniquePageCount
+
+        // Update state's current max index based on what we actually inserted
+        state.currentMaxIndex = max(state.currentMaxIndex, lastAssignedPageIndex)
+
         try env.context.save()
         state.pendingPages.removeAll(keepingCapacity: true)
     }
 
     func finalizeIfNeeded(state: inout FetchState, env: FetchEnv, force: Bool = false) async throws {
         if force || state.preparedSinceLastCommit >= state.commitThreshold {
+            await CommitGate.shared.pause()
             try applyPendingPages(state: &state, env: env)
+            await CommitGate.shared.resume()
             state.preparedSinceLastCommit = 0
             await Task.yield()
         }
@@ -74,14 +113,19 @@ extension ComicManager {
 
     func maybeSetCover(from parsed: CMTypes.ParseResult, referer: URL, env: FetchEnv, state: inout FetchState) async {
         guard state.initiallyEmpty, !state.didSetCoverAtFetchTime, let firstImageURL = parsed.imageURLs.first else { return }
+        state.didSetCoverAtFetchTime = true
+
         do {
-            let data = try await getData(firstImageURL, referer: referer)
+            // Download the first image data asynchronously
+            let data = try await self.getData(firstImageURL, referer: referer)
+            // Apply the cover on the same context that is performing the fetch to avoid cross-context clobbering
             if env.comic.coverImage == nil {
                 env.comic.coverImage = data
                 try? env.context.save()
             }
-            state.didSetCoverAtFetchTime = true
-        } catch { }
+        } catch {
+            // Best-effort: ignore errors silently
+        }
     }
 
     func prepareBatch(from parsed: CMTypes.ParseResult, at url: URL, maxPages: Int?, state: FetchState) async throws -> CMTypes.PreparationResult {
@@ -99,12 +143,13 @@ extension ComicManager {
         if shouldStop(maxPages: maxPages, pagesAdded: state.pagesAdded) { return .finished }
         guard state.visitedURLs.insert(state.currentURL.absoluteString).inserted else { return .finished }
 
+        await CommitGate.shared.waitIfPaused()
+
         let parsed = try await fetchAndParse(
             url: state.currentURL,
             referer: state.previousURL,
             selectorTitle: selectors.title,
-            selectorImage: selectors.image,
-            http: http
+            selectorImage: selectors.image
         )
         guard !parsed.imageURLs.isEmpty else { return .finished }
 
@@ -115,7 +160,6 @@ extension ComicManager {
         state.pendingPages.append(contentsOf: prep.prepared)
 
         state.pagesAdded += prep.result.inserted
-        state.currentMaxIndex = prep.result.newStartingIndex
 
         state.preparedSinceLastCommit += prep.prepared.count
         try await finalizeIfNeeded(state: &state, env: env, force: prep.result.didReachMax)

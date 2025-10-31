@@ -3,6 +3,39 @@ import SwiftData
 import SwiftUI
 import Observation
 
+nonisolated private func applyCachedFieldUpdates(for comic: Comic, using fm: FileManager) -> Bool {
+    let pages = comic.pages
+    let pageCount = pages.count
+    var imageCount = 0
+    var downloadedCount = 0
+    var firstCoverPath: String = comic.coverFilePath
+
+    for page in pages {
+        imageCount += page.images.count
+        for image in page.images {
+            let path = image.downloadPath
+            if path.isEmpty { continue }
+            let fsPath: String
+            if let url = URL(string: path), url.scheme != nil {
+                fsPath = url.path
+            } else {
+                fsPath = path
+            }
+            if fm.fileExists(atPath: fsPath) {
+                downloadedCount += 1
+                if firstCoverPath.isEmpty { firstCoverPath = fsPath }
+            }
+        }
+    }
+
+    var didChange = false
+    if comic.pageCount != pageCount { comic.pageCount = pageCount; didChange = true }
+    if comic.imageCount != imageCount { comic.imageCount = imageCount; didChange = true }
+    if comic.downloadedImageCount != downloadedCount { comic.downloadedImageCount = downloadedCount; didChange = true }
+    if comic.coverFilePath.isEmpty && !firstCoverPath.isEmpty { comic.coverFilePath = firstCoverPath; didChange = true }
+    return didChange
+}
+
 @Observable @MainActor
 final class LibraryViewModel {
     var isAddingComic: Bool = false
@@ -12,6 +45,8 @@ final class LibraryViewModel {
 
     @ObservationIgnored private var updateTasks: [UUID: Task<Void, Never>] = [:]
     var updatingComicIDs: Set<UUID> = []
+
+    @ObservationIgnored private var isBackfilling = false
 
     func isFetching(comic: Comic) -> Bool { fetchingComicIDs.contains(comic.id) }
     func isUpdating(comic: Comic) -> Bool { updatingComicIDs.contains(comic.id) }
@@ -44,10 +79,11 @@ final class LibraryViewModel {
                 return
             }
 
-            let cm = await MainActor.run { ComicManager() }
+            let cm = await ComicManager(httpClient: HTTPClient())
             do {
                 // Perform heavy work off-main
                 _ = try await cm.fetchPages(for: bgComic, context: bgContext)
+                try? Task.checkCancellation()
             } catch is CancellationError {
                 // Swallow cancellation
             } catch let urlError as URLError where urlError.code == .cancelled {
@@ -96,9 +132,10 @@ final class LibraryViewModel {
                 return
             }
 
-            let cm = await MainActor.run { ComicManager() }
+            let cm = await ComicManager(httpClient: HTTPClient())
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
             do {
+                try? Task.checkCancellation()
                 _ = try await cm.downloadImages(for: bgComic, to: docs, context: bgContext, overwrite: false)
             } catch is CancellationError {
                 // Swallow cancellation
@@ -156,35 +193,52 @@ final class LibraryViewModel {
         do {
             try context.save()
             if oldName != input.name {
-                let fm = FileManager.default
-                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                let oldFolder = docs.appendingPathComponent(oldName.sanitizedForFileName())
-                let newFolder = docs.appendingPathComponent(input.name.sanitizedForFileName())
+                let comicID = comic.id
+                let container = context.container
+                // Precompute sanitized names on the main actor to avoid calling main-actor-isolated APIs off-main
+                let oldSanitized = oldName.sanitizedForFileName()
+                let newSanitized = input.name.sanitizedForFileName()
+                Task.detached(priority: .utility) {
+                    let bgContext = ModelContext(container)
+                    bgContext.autosaveEnabled = false
 
-                if fm.fileExists(atPath: oldFolder.path) {
-                    if oldFolder != newFolder {
-                        if fm.fileExists(atPath: newFolder.path) {
-                            // Destination exists; avoid destructive merge
-                        } else {
-                            try? fm.moveItem(at: oldFolder, to: newFolder)
-                        }
+                    // Resolve comic in background context by ID
+                    guard let bgComic = try? bgContext.fetch(FetchDescriptor<Comic>(predicate: #Predicate { $0.id == comicID })).first else {
+                        return
                     }
 
-                    let oldPath = oldFolder.path
-                    let newPath = newFolder.path
-                    for page in comic.pages {
-                        for image in page.images {
-                            guard !image.downloadPath.isEmpty else { continue }
-                            if let url = URL(string: image.downloadPath), url.scheme != nil {
-                                let updatedPath = url.path.replacingOccurrences(of: oldPath, with: newPath)
-                                let newFileURL = URL(fileURLWithPath: updatedPath)
-                                image.downloadPath = newFileURL.absoluteString
+                    let fm = FileManager.default
+                    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    let oldFolder = docs.appendingPathComponent(oldSanitized)
+                    let newFolder = docs.appendingPathComponent(newSanitized)
+
+                    if fm.fileExists(atPath: oldFolder.path) {
+                        if oldFolder != newFolder {
+                            if fm.fileExists(atPath: newFolder.path) {
+                                // Destination exists; avoid destructive merge
                             } else {
-                                image.downloadPath = image.downloadPath.replacingOccurrences(of: oldPath, with: newPath)
+                                try? fm.moveItem(at: oldFolder, to: newFolder)
                             }
                         }
+
+                        let oldPath = oldFolder.path
+                        let newPath = newFolder.path
+
+                        // Update stored paths to reflect the new folder location
+                        for page in bgComic.pages {
+                            for image in page.images {
+                                guard !image.downloadPath.isEmpty else { continue }
+                                if let url = URL(string: image.downloadPath), url.scheme != nil {
+                                    let updatedPath = url.path.replacingOccurrences(of: oldPath, with: newPath)
+                                    let newFileURL = URL(fileURLWithPath: updatedPath)
+                                    image.downloadPath = newFileURL.absoluteString
+                                } else {
+                                    image.downloadPath = image.downloadPath.replacingOccurrences(of: oldPath, with: newPath)
+                                }
+                            }
+                        }
+                        try? bgContext.save()
                     }
-                    try? context.save()
                 }
             }
         } catch {
@@ -221,5 +275,57 @@ final class LibraryViewModel {
         context.insert(comic)
         try context.save()
         return comic
+    }
+
+    // Backfill cached counts/paths for existing libraries. Safe to call multiple times.
+    func backfillCachedFields(context: ModelContext) {
+        Task { @MainActor in
+            if self.isBackfilling { return }
+            self.isBackfilling = true
+        }
+
+        let container = context.container
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let bg = ModelContext(container)
+            bg.autosaveEnabled = false
+
+            do {
+                let comics: [Comic] = try bg.fetch(FetchDescriptor<Comic>())
+                guard !comics.isEmpty else {
+                    await MainActor.run { [weak self] in
+                        self?.isBackfilling = false
+                    }
+                    return
+                }
+
+                let fm = FileManager.default
+                var updated = 0
+
+                for comic in comics {
+                    if applyCachedFieldUpdates(for: comic, using: fm) {
+                        updated += 1
+                    }
+
+                    // Save periodically
+                    if updated % 25 == 0 { try? bg.save() }
+                }
+
+                try? bg.save()
+                await MainActor.run { [weak self] in
+                    self?.isBackfilling = false
+                }
+            } catch {
+                // Best-effort backfill; ignore errors
+                await MainActor.run { [weak self] in
+                    self?.isBackfilling = false
+                }
+            }
+        }
+    }
+
+    deinit {
+        for (_, t) in fetchTasks { t.cancel() }
+        for (_, t) in updateTasks { t.cancel() }
     }
 }

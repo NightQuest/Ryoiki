@@ -8,6 +8,11 @@ struct ComicDetailView: View {
     @State private var frozenPageCount: Int?
     @State private var frozenImageCount: Int?
 
+    private func refreshFrozenCounts() {
+        frozenPageCount = comic.pageCount
+        frozenImageCount = comic.imageCount
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -19,12 +24,12 @@ struct ComicDetailView: View {
                     LabeledContent("Author", value: comic.author)
                 }
 
-                if !(comic.pages.isEmpty) {
-                    let count = frozenPageCount ?? comic.dedupedPageCount
+                if comic.pageCount > 0 {
+                    let count = frozenPageCount ?? comic.pageCount
                     LabeledContent("Pages", value: String(count))
                 }
 
-                if !(comic.pages.isEmpty) {
+                if comic.imageCount > 0 {
                     let count = frozenImageCount ?? comic.imageCount
                     LabeledContent("Images", value: String(count))
                 }
@@ -57,8 +62,14 @@ struct ComicDetailView: View {
                 frozenImageCount = nil
             }
             .task {
-                if frozenPageCount == nil { frozenPageCount = comic.dedupedPageCount }
+                if frozenPageCount == nil { frozenPageCount = comic.pageCount }
                 if frozenImageCount == nil { frozenImageCount = comic.imageCount }
+            }
+            .onChange(of: comic.name) { _, _ in
+                refreshFrozenCounts()
+            }
+            .onChange(of: comic.firstPageURL) { _, _ in
+                refreshFrozenCounts()
             }
         }
         .navigationTitle(comic.name)

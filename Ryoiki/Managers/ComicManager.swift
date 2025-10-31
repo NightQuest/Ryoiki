@@ -21,6 +21,22 @@ import SwiftData
 struct ComicManager: Sendable {
     let http: HTTPClientProtocol
 
+    private struct NoopHTTPClient: HTTPClientProtocol, Sendable {
+        func get(_ url: URL, referer: URL?) async throws -> (Data, HTTPURLResponse) {
+            throw HTTPClientError.cancelled
+        }
+        func head(_ url: URL, referer: URL?) async throws -> HTTPURLResponse {
+            throw HTTPClientError.cancelled
+        }
+        func downloadToTemp(url: URL, referer: URL?) async throws -> (URL, HTTPURLResponse) {
+            throw HTTPClientError.cancelled
+        }
+    }
+
+    init() {
+        self.http = NoopHTTPClient()
+    }
+
     // MARK: Errors
     enum Error: Swift.Error {
         case network(Swift.Error)
@@ -31,7 +47,7 @@ struct ComicManager: Sendable {
         case cancelled
     }
 
-    init(httpClient: HTTPClientProtocol = HTTPClient()) {
+    init(httpClient: HTTPClientProtocol) {
         self.http = httpClient
     }
 }

@@ -8,51 +8,143 @@ import SwiftData
 
 // MARK: - Image Downloading
 extension ComicManager {
+
+    private struct MissingScanContext {
+        let comicID: UUID
+        let comicFolder: URL
+        let fileManager: FileManager
+        let existingFileSet: Set<String>
+        let resolvedPath: (String) -> String?
+    }
+
+    private func findMissingOnDiskImages(
+        context: ModelContext,
+        scan: MissingScanContext
+    ) throws -> [ComicImage] {
+        var missing: [ComicImage] = []
+        var fetchOffset = 0
+        let fetchLimit = 1000
+        while true {
+            try Task.checkCancellation()
+            let id = scan.comicID
+            var desc = FetchDescriptor<ComicImage>(
+                predicate: #Predicate { $0.comicPage.comic.id == id && $0.downloadPath != "" },
+                sortBy: [
+                    SortDescriptor(\.comicPage.index),
+                    SortDescriptor(\.index)
+                ]
+            )
+            desc.fetchLimit = fetchLimit
+            desc.fetchOffset = fetchOffset
+            let batch: [ComicImage] = try context.fetch(desc)
+            if batch.isEmpty { break }
+
+            for img in batch {
+                guard let fsPath = scan.resolvedPath(img.downloadPath) else {
+                    missing.append(img)
+                    continue
+                }
+                if fsPath.hasPrefix(scan.comicFolder.path) {
+                    if !scan.existingFileSet.contains(fsPath) { missing.append(img) }
+                } else {
+                    if !scan.fileManager.fileExists(atPath: fsPath) { missing.append(img) }
+                }
+            }
+
+            fetchOffset += batch.count
+        }
+        return missing
+    }
+
     private struct DownloadResult {
         let imageID: UUID
         let fileURLString: String
+        let filePath: String
         let coverData: Data?
         let wrote: Bool
+        let didDownload: Bool
+    }
+
+    private struct DownloadInput: Sendable {
+        let imageID: UUID
+        let pageURL: String
+        let pageIndex: Int
+        let pageTitle: String
+        let imageURL: String
+        let needsCover: Bool
     }
 
     private func downloadAsset(
-        page: ComicPage,
-        image: ComicImage,
+        input: DownloadInput,
         comicFolder: URL,
         overwrite: Bool,
         naming: PageNamingContext
     ) async throws -> DownloadResult {
         let fileManager = FileManager.default
-        guard let refererURL = URL(string: page.pageURL) else { return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false) }
+        guard let refererURL = URL(string: input.pageURL) else {
+            return .init(imageID: input.imageID,
+                         fileURLString: "",
+                         filePath: "",
+                         coverData: nil,
+                         wrote: false,
+                         didDownload: false)
+        }
 
         let index = naming.formattedIndex
-        let titlePart: String = page.title.isEmpty ? "" : " - " + page.title.sanitizedForFileName()
+        let titlePart: String = input.pageTitle.isEmpty ? "" : " " + input.pageTitle.sanitizedForFileName()
 
         // Data URL path
-        if image.imageURL.hasPrefix("data:") {
-            guard let (mediatype, data) = decodeDataURL(image.imageURL) else {
-                return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false)
+        if input.imageURL.hasPrefix("data:") {
+            guard let (mediatype, data) = decodeDataURL(input.imageURL) else {
+                return .init(imageID: input.imageID,
+                             fileURLString: "",
+                             filePath: "",
+                             coverData: nil,
+                             wrote: false,
+                             didDownload: false)
             }
             let ext = fileExtension(contentType: mediatype, urlExtension: nil, fallback: "png")
             let fileName = "\(index)\(titlePart).\(ext)"
             let fileURL = comicFolder.appendingPathComponent(fileName)
 
             if !overwrite && fileManager.fileExists(atPath: fileURL.path) {
-                return .init(imageID: image.id, fileURLString: fileURL.absoluteString, coverData: nil, wrote: false)
+                return .init(imageID: input.imageID,
+                             fileURLString: fileURL.absoluteString,
+                             filePath: fileURL.path,
+                             coverData: nil,
+                             wrote: false,
+                             didDownload: false)
             }
 
             try data.write(to: fileURL, options: [])
-            let coverData = (page.comic.coverImage == nil) ? data : nil
-            return .init(imageID: image.id, fileURLString: fileURL.absoluteString, coverData: coverData, wrote: true)
+            let coverData = input.needsCover ? data : nil
+            return .init(imageID: input.imageID,
+                         fileURLString: fileURL.absoluteString,
+                         filePath: fileURL.path,
+                         coverData: coverData,
+                         wrote: true,
+                         didDownload: true)
         }
 
         // Network image path
-        guard let imageURL = URL(string: image.imageURL) else { return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false) }
+        guard let imageURL = URL(string: input.imageURL) else {
+            return .init(imageID: input.imageID,
+                         fileURLString: "",
+                         filePath: "",
+                         coverData: nil,
+                         wrote: false,
+                         didDownload: false)
+        }
         do {
             let (tempURL, response) = try await http.downloadToTemp(url: imageURL, referer: refererURL)
             guard (200..<300).contains(response.statusCode) else {
                 try? fileManager.removeItem(at: tempURL)
-                return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false)
+                return .init(imageID: input.imageID,
+                             fileURLString: "",
+                             filePath: "",
+                             coverData: nil,
+                             wrote: false,
+                             didDownload: false)
             }
             let contentType = response.value(forHTTPHeaderField: "Content-Type")
             let ext = fileExtension(contentType: contentType, urlExtension: imageURL.pathExtension, fallback: "png")
@@ -63,15 +155,32 @@ extension ComicManager {
             defer { try? fileManager.removeItem(at: tempURL) }
 
             if !overwrite && fileManager.fileExists(atPath: fileURL.path) {
-                return .init(imageID: image.id, fileURLString: fileURL.absoluteString, coverData: nil, wrote: false)
+                return .init(imageID: input.imageID,
+                             fileURLString: fileURL.absoluteString,
+                             filePath: fileURL.path,
+                             coverData: nil,
+                             wrote: false,
+                             didDownload: false)
             }
             if overwrite && fileManager.fileExists(atPath: fileURL.path) { try? fileManager.removeItem(at: fileURL) }
 
             try fileManager.moveItem(at: tempURL, to: fileURL)
-            let coverData = (page.comic.coverImage == nil) ? (try? Data(contentsOf: fileURL)) : nil
-            return .init(imageID: image.id, fileURLString: fileURL.absoluteString, coverData: coverData, wrote: true)
+            let coverData = input.needsCover ? (try? Data(contentsOf: fileURL)) : nil
+            return .init(imageID: input.imageID,
+                         fileURLString: fileURL.absoluteString,
+                         filePath: fileURL.path,
+                         coverData: coverData,
+                         wrote: true,
+                         didDownload: true)
         } catch let clientError as HTTPClientError {
-            if case .cancelled = clientError { return .init(imageID: image.id, fileURLString: "", coverData: nil, wrote: false) }
+            if case .cancelled = clientError {
+                return .init(imageID: input.imageID,
+                             fileURLString: "",
+                             filePath: "",
+                             coverData: nil,
+                             wrote: false,
+                             didDownload: false)
+            }
             throw clientError
         }
     }
@@ -89,73 +198,105 @@ extension ComicManager {
             try fileManager.createDirectory(at: comicFolder, withIntermediateDirectories: true)
         }
 
-        // Precompute page-based indexing: group by pageURL for group counts and per-image positions
-        let allPagesSorted = comic.pages.sorted { $0.index < $1.index }
-        var groupsByURL: [String: [ComicPage]] = [:]
-        for p in allPagesSorted { groupsByURL[p.pageURL, default: []].append(p) }
+        await CommitGate.shared.waitIfPaused()
 
-        // Group count per URL (number of images per pageURL across all pages)
-        let groupCountByURL: [String: Int] = {
-            var dict: [String: Int] = [:]
-            for (pageURL, pages) in groupsByURL {
-                let count = pages.reduce(0) { $0 + $1.images.count }
-                dict[pageURL] = count
+        // Helper to resolve a stored downloadPath (which may be a URL string or plain path) into a filesystem path
+        func resolvedFileSystemPath(from storedPath: String) -> String? {
+            guard !storedPath.isEmpty else { return nil }
+            if let url = URL(string: storedPath), url.scheme != nil {
+                // If scheme is present, prefer the URL's path component
+                return url.path
+            } else {
+                return storedPath
             }
-            return dict
+        }
+
+        // Precompute existing files in the target folder for fast membership checks
+        let existingFileSet: Set<String> = {
+            if let names = try? fileManager.contentsOfDirectory(atPath: comicFolder.path) {
+                return Set(names.map { comicFolder.appendingPathComponent($0).path })
+            }
+            return []
         }()
 
-        // Flatten all (page,image) pairs
-        let allPairs: [(ComicPage, ComicImage)] = comic.pages.flatMap { page in
-            page.images.map { (page, $0) }
+        // Build a minimal working set of images to download using background-friendly fetches
+        let comicID = comic.id
+
+        // 1) Images that have not been downloaded yet (downloadPath == "")
+        let freshImages: [ComicImage] = try context.fetch(
+            FetchDescriptor<ComicImage>(
+                predicate: #Predicate { $0.comicPage.comic.id == comicID && $0.downloadPath == "" },
+                sortBy: [
+                    SortDescriptor(\.comicPage.index),
+                    SortDescriptor(\.index)
+                ]
+            )
+        )
+
+        // 2) Images that claim to be downloaded but whose file is missing on disk
+        //    Fetch in chunks to reduce peak memory, and use precomputed directory contents for fast checks.
+        let scanCtx = MissingScanContext(
+            comicID: comicID,
+            comicFolder: comicFolder,
+            fileManager: fileManager,
+            existingFileSet: existingFileSet,
+            resolvedPath: { resolvedFileSystemPath(from: $0) }
+        )
+        let missingOnDisk = try findMissingOnDiskImages(context: context, scan: scanCtx)
+
+        // Combine, de-duplicating by id
+        var byID: [UUID: ComicImage] = [:]
+        for i in freshImages { byID[i.id] = i }
+        for i in missingOnDisk { byID[i.id] = i }
+
+        // Sort final list in deterministic reading order (page.index, image.index)
+        let imagesToProcess: [ComicImage] = byID.values.sorted { lhs, rhs in
+            let lp = lhs.comicPage.index
+            let rp = rhs.comicPage.index
+            if lp != rp { return lp < rp }
+            return lhs.index < rhs.index
         }
 
-        var imageByID: [UUID: ComicImage] = [:]
-        for (_, img) in allPairs { imageByID[img.id] = img }
-
-        // Position map is 1-based position of each (pageURL,imageURL) within its group (ordered by page.index then image.index)
-        var positionByCompositeKey: [String: Int] = [:]
-        for (_, pages) in groupsByURL {
-            let orderedPairs = pages
-                .sorted { $0.index < $1.index }
-                .flatMap { page in
-                    page.images
-                        .sorted { $0.index < $1.index }
-                        .map { (page, $0) }
-                }
-            for (i, pair) in orderedPairs.enumerated() {
-                let (page, image) = pair
-                positionByCompositeKey["\(page.pageURL)|\(image.imageURL)"] = i + 1
-            }
-        }
-
-        let availablePairs = allPairs.filter { pair in
-            let (_, image) = pair
-            return image.downloadPath.isEmpty || !fileManager.fileExists(atPath: image.downloadPath)
-        }.sorted { lhs, rhs in
-            let (lp, li) = lhs
-            let (rp, ri) = rhs
-            if lp.index != rp.index { return lp.index < rp.index }
-            return li.index < ri.index
-        }
+        try Task.checkCancellation()
 
         var filesWritten = 0
-        let maxConcurrent = 6 // Be nice to remote servers
+        let userMax = UserDefaults.standard.integer(forKey: .settingsDownloadMaxConcurrent)
+        let maxConcurrent = max(1, min(userMax == 0 ? 10 : userMax, 24)) // default 10, clamp 1...24
 
+        // Fast exit if nothing to do
+        if imagesToProcess.isEmpty {
+            try context.save()
+            return filesWritten
+        }
+
+        try Task.checkCancellation()
         try await withThrowingTaskGroup(of: DownloadResult.self) { group in
-            var iterator = availablePairs.makeIterator()
+            var iterator = imagesToProcess.makeIterator()
 
             // Helper to enqueue the next download task if available
             func enqueueNext() {
-                guard let (page, image) = iterator.next() else { return }
+                guard let image = iterator.next() else { return }
+                let page = image.comicPage
+
+                // Compute naming using per-page ordering to avoid global precomputation
                 let baseIndex = page.index
-                let groupCount = groupCountByURL[page.pageURL] ?? 1
-                let compositeKey = "\(page.pageURL)|\(image.imageURL)"
-                let subNumber = positionByCompositeKey[compositeKey]
+                let groupCount = page.images.count
+                let subNumber = (groupCount > 1) ? (image.index + 1) : nil
                 let naming = PageNamingContext(baseIndex: baseIndex, groupCount: groupCount, subNumber: subNumber)
+
+                let input = DownloadInput(
+                    imageID: image.id,
+                    pageURL: page.pageURL,
+                    pageIndex: page.index,
+                    pageTitle: page.title,
+                    imageURL: image.imageURL,
+                    needsCover: (page.comic.coverImage == nil)
+                )
+
                 group.addTask {
-                    try await downloadAsset(
-                        page: page,
-                        image: image,
+                    try Task.checkCancellation()
+                    return try await downloadAsset(
+                        input: input,
                         comicFolder: comicFolder,
                         overwrite: overwrite,
                         naming: naming
@@ -164,30 +305,45 @@ extension ComicManager {
             }
 
             // Helper to apply a finished result to the model and persist periodically
-            func processResult(_ result: DownloadResult) throws {
+            func processResult(_ result: DownloadResult) async throws {
                 if result.wrote { filesWritten += 1 }
-                if let imageRef = imageByID[result.imageID] {
+                if let imageRef = byID[result.imageID] {
                     imageRef.downloadPath = result.fileURLString
-                    if let cover = result.coverData, imageRef.comicPage.comic.coverImage == nil {
-                        imageRef.comicPage.comic.coverImage = cover
+
+                    let comicRef = imageRef.comicPage.comic
+                    if result.didDownload {
+                        comicRef.downloadedImageCount += 1
+                    }
+
+                    if let cover = result.coverData, comicRef.coverImage == nil {
+                        comicRef.coverImage = cover
+                    }
+                    if comicRef.coverFilePath.isEmpty {
+                        comicRef.coverFilePath = result.filePath
                     }
                 }
                 // Periodic persistence to avoid losing progress on large batches
                 if result.wrote && (filesWritten % 50 == 0) {
+                    await CommitGate.shared.pause()
+                    defer { Task { await CommitGate.shared.resume() } }
                     try context.save()
                 }
             }
 
             // Seed initial tasks up to the concurrency limit
-            for _ in 0..<min(maxConcurrent, availablePairs.count) { enqueueNext() }
+            for _ in 0..<min(maxConcurrent, imagesToProcess.count) { enqueueNext() }
 
             // Drain tasks; enqueue one-for-one to maintain the window
             while let result = try await group.next() {
-                try processResult(result)
+                await CommitGate.shared.waitIfPaused()
+                try Task.checkCancellation()
+                try await processResult(result)
                 enqueueNext()
             }
         }
 
+        await CommitGate.shared.pause()
+        defer { Task { await CommitGate.shared.resume() } }
         try context.save()
 
         return filesWritten
@@ -210,12 +366,13 @@ private struct PageNamingContext {
         // Zero-pad baseIndex to width 5 without using String(format:)
         let baseString = String(baseIndex)
         let paddingCount = max(0, 5 - baseString.count)
-        var formattedIndex = String(repeating: "0", count: paddingCount) + baseString
+        let basePadded = String(repeating: "0", count: paddingCount) + baseString
 
         if groupCount > 1 {
-            let postSuffix = String(max(1, subNumber ?? 1))
-            formattedIndex += ("-" + String(repeating: "0", count: max(0, postSuffix.count - 1)) + postSuffix)
+            let sub = max(1, subNumber ?? 1)
+            self.formattedIndex = "\(basePadded)-\(sub)"
+        } else {
+            self.formattedIndex = basePadded
         }
-        self.formattedIndex = formattedIndex
     }
 }

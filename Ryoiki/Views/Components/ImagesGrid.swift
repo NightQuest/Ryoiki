@@ -6,12 +6,15 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ImagesGrid: View {
     let downloadedImages: [DownloadedImageItem]
     let comic: Comic
     @Binding var selectionManager: SelectionManager
     let onLayoutUpdate: (_ frames: [UUID: CGRect], _ origin: CGPoint, _ orderedIDs: [UUID]) -> Void
+
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         EntityGrid(
@@ -30,8 +33,8 @@ struct ImagesGrid: View {
         } contextMenu: { item, isSelected in
             if FileManager.default.fileExists(atPath: item.fileURL.path) {
                 Button {
-                    // Set cover from selected image
-                    comic.setCoverImage(from: item.fileURL)
+                    // Set cover from selected image using the same ModelContext (avoid detached context)
+                    comic.setCoverImage(from: item.fileURL, context: modelContext)
                 } label: {
                     Label("Set as Cover", systemImage: "rectangle.portrait")
                 }

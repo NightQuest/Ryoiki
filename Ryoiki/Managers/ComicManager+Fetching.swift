@@ -15,47 +15,66 @@ extension ComicManager {
         context: ModelContext,
         maxPages: Int? = nil
     ) async throws -> Int {
-        // Snapshot model-derived values that require main-actor access once up front
-        let firstPageURL: URL = try await MainActor.run { () -> URL in
-            let firstPage = comic.pages.last?.pageURL ?? comic.firstPageURL
-            let firstPageString = firstPage
-            guard let firstPageTrimmed = firstPageString.trimmedNilIfEmpty,
-                  let url = URL(string: firstPageTrimmed) else {
-                throw Error.invalidBaseURL
-            }
-            return url
-        }
-        let prevPageURL: URL = try await MainActor.run { () -> URL in
-            let firstPage = comic.pages.last(where: { page in
-                page.pageURL != firstPageURL.absoluteString
-            })?.pageURL ?? comic.firstPageURL
-            let firstPageString = firstPage
-            guard let firstPageTrimmed = firstPageString.trimmedNilIfEmpty,
-                  let url = URL(string: firstPageTrimmed) else {
-                throw Error.invalidBaseURL
-            }
-            return url
-        }
-
+        // The passed-in `comic` is expected to belong to the provided `context` (a background context in callers)
+        // Snapshot primitive values directly from this context-bound model
+        let comicID = comic.id
         let selectorNext = comic.selectorNext
         let selectorImage = comic.selectorImage
         let selectorTitle = comic.selectorTitle
+        let firstPageURLString = comic.firstPageURL
 
         if selectorImage.isEmpty { throw Error.missingSelector("selectorImage") }
 
-        // Build a fast lookup of existing (pageURL|imageURL) pairs to avoid O(n) scans on main actor
-        let existingPairKeys: Set<String> = await MainActor.run {
-            Set(comic.pages.flatMap { page in
-                page.images.map { "\(page.pageURL)|\($0.imageURL)" }
-            })
-        }
+        // Resolve the starting URL and previous URL using background fetches of pages
+        // Find the last page (highest index) if any, and its predecessor as referer
+        let lastPage: ComicPage? = try context.fetch(
+            FetchDescriptor<ComicPage>(
+                predicate: #Predicate { $0.comic.id == comicID },
+                sortBy: [SortDescriptor(\.index, order: .forward)]
+            )
+        ).last
 
-        // Find current maximum index in existing pages (main-actor snapshot once)
-        let currentMaxIndex: Int = await MainActor.run {
-            comic.pages.max(by: { $0.index < $1.index })?.index ?? -1
-        }
+        let lastIndex: Int = lastPage?.index ?? Int.min
 
-        let initiallyEmpty: Bool = await MainActor.run { comic.pages.isEmpty }
+        let previousPage: ComicPage? = {
+            guard lastIndex != Int.min else { return nil }
+            return try? context.fetch(
+                FetchDescriptor<ComicPage>(
+                    predicate: #Predicate { $0.comic.id == comicID && $0.index < lastIndex },
+                    sortBy: [SortDescriptor(\.index, order: .reverse)]
+                )
+            ).first
+        }()
+
+        // Compute current URL (continue from last page if exists; otherwise from configured firstPageURL)
+        let currentURL: URL = {
+            if let last = lastPage, let u = URL(string: last.pageURL) { return u }
+            guard let u = URL(string: firstPageURLString.trimmedNilIfEmpty ?? "") else { return URL(string: "about:blank")! }
+            return u
+        }()
+
+        // Compute referer (previous page URL if available, else fallback to firstPageURL)
+        let previousURL: URL? = {
+            if let prev = previousPage, let u = URL(string: prev.pageURL) { return u }
+            return URL(string: firstPageURLString.trimmedNilIfEmpty ?? "")
+        }()
+
+        // Find current maximum index in existing pages (background fetch)
+        let currentMaxIndex: Int = lastPage?.index ?? 0
+
+        // Build duplicate detection set from a rolling window of recent pages to reduce upfront cost
+        let windowStartIndex = max(0, currentMaxIndex - 200)
+        let recentImages: [ComicImage] = try context.fetch(
+            FetchDescriptor<ComicImage>(
+                predicate: #Predicate { $0.comicPage.comic.id == comicID && $0.comicPage.index >= windowStartIndex }
+            )
+        )
+        let existingPairKeys: Set<String> = Set(recentImages.map { img in
+            let pageURL = img.pageURL.isEmpty ? img.comicPage.pageURL : img.pageURL
+            return "\(pageURL)|\(img.imageURL)"
+        })
+
+        let initiallyEmpty: Bool = (lastPage == nil)
 
         let selectors = Selectors(title: selectorTitle, image: selectorImage, next: selectorNext)
 
@@ -65,25 +84,27 @@ extension ComicManager {
             currentMaxIndex: currentMaxIndex,
             visitedURLs: [],
             pagesAdded: 0,
-            currentURL: firstPageURL,
-            previousURL: prevPageURL,
+            currentURL: currentURL,
+            previousURL: previousURL,
             pendingPages: [],
             preparedSinceLastCommit: 0,
-            commitThreshold: 5,
+            commitThreshold: 100,
             initiallyEmpty: initiallyEmpty
         )
+
+        try Task.checkCancellation()
 
         let env = FetchEnv(comic: comic, context: context)
 
         // Ensure we always try to commit pending pages on function exit/cancellation
         defer {
-            Task { @MainActor in
-                do { try self.applyPendingPages(state: &state, env: env) } catch { }
-            }
+            do { try self.applyPendingPages(state: &state, env: env) } catch { }
         }
 
         // Sequential loop
         while true {
+            try Task.checkCancellation()
+
             let result = try await stepOnce(
                 maxPages: maxPages,
                 selectors: selectors,

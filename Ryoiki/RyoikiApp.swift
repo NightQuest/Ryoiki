@@ -13,6 +13,16 @@ struct RyoikiApp: App {
     let modelContainer: ModelContainer
 
     init() {
+        // Register default settings values on first launch
+        UserDefaults.standard.register(defaults: [
+            .settingsLibraryItemsPerRow: 6,
+            .settingsReaderPreloadRadius: 10,
+            .settingsReaderDownsampleMaxPixel: 2048,
+            .settingsNetworkUserAgent: defaultUserAgent,
+            .settingsNetworkPerHost: 6,
+            .settingsDownloadMaxConcurrent: 10
+        ])
+
         do {
             modelContainer = try ModelContainer(
                 for: Comic.self, ComicPage.self,

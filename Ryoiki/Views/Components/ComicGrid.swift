@@ -99,8 +99,17 @@ struct ComicGrid: View {
 
                     // Delete fetched pages associated with this comic from the model context
                     for page in comic.pages {
+                        for image in page.images {
+                            modelContext.delete(image)
+                        }
                         modelContext.delete(page)
                     }
+
+                    // Reset cached counters on the comic
+                    comic.pageCount = 0
+                    comic.imageCount = 0
+                    comic.downloadedImageCount = 0
+                    comic.coverFilePath = ""
 
                     try? modelContext.save()
                 }

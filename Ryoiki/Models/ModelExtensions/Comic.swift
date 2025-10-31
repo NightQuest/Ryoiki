@@ -8,11 +8,12 @@
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import SwiftData
 
 extension Comic {
     @MainActor
-    func setCoverImage(from fileURL: URL, maxPixel: CGFloat = 512, compressionQuality: CGFloat = 0.8) {
-        Task { @MainActor in
+    func setCoverImage(from fileURL: URL, context: ModelContext, maxPixel: CGFloat = 512, compressionQuality: CGFloat = 0.8) {
+        Task {
             let data: Data? = await Task.detached(priority: .userInitiated) { () -> Data? in
                 // Create thumbnail via ImageIO
                 let options: [CFString: Any] = [
@@ -35,16 +36,22 @@ extension Comic {
                 // Fallback to raw file data if thumbnail creation fails
                 return try? Data(contentsOf: fileURL)
             }.value
-            if let data { self.coverImage = data }
+            if let data {
+                self.coverImage = data
+                if self.coverFilePath.isEmpty {
+                    self.coverFilePath = fileURL.path
+                }
+                try? context.save()
+            }
         }
     }
 
-    var dedupedPageCount: Int {
+    var computedDedupedPageCount: Int {
         let uniqueByURL = Set(self.pages.map { $0.pageURL })
         return uniqueByURL.count
     }
 
-    var imageCount: Int {
+    var computedImageCount: Int {
         pages.reduce(0) { $0 + $1.images.count }
     }
 
