@@ -12,8 +12,25 @@ extension ComicManager {
         do {
             let (data, response) = try await http.get(url, referer: referer)
             guard (200..<300).contains(response.statusCode) else { throw Error.badStatus(response.statusCode) }
-            guard let html = String(data: data, encoding: .utf8) else { throw Error.parse }
-            return html
+
+            var htmlString: String?
+
+            if let textEncoding: String = response.textEncodingName,
+               let text = String(data: data, encoding: textEncoding.textEncodingToStringEncoding) {
+                htmlString = text
+            } else if let text = String(data: data, encoding: .utf8) {
+                htmlString = text
+            } else if let text = String(data: data, encoding: .macOSRoman) {
+                htmlString = text
+            } else if let text = String(data: data, encoding: .ascii) {
+                htmlString = text
+            }
+
+            guard htmlString != nil else {
+                throw ComicManager.Error.parse
+            }
+
+            return htmlString ?? ""
         } catch let clientError as HTTPClientError {
             throw map(clientError)
         }

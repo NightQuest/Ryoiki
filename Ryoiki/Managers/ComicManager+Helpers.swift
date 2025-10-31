@@ -13,10 +13,10 @@ func fetchAndParse(url: URL,
         throw ComicManager.Error.badStatus(response.statusCode)
     }
 
-    guard let textEncoding: String = response.textEncodingName else { throw ComicManager.Error.parse }
     var htmlString: String?
 
-    if let text = String(data: data, encoding: textEncoding.textEncodingToStringEncoding) {
+    if let textEncoding: String = response.textEncodingName,
+       let text = String(data: data, encoding: textEncoding.textEncodingToStringEncoding) {
         htmlString = text
     } else if let text = String(data: data, encoding: .utf8) {
         htmlString = text
