@@ -1,12 +1,32 @@
 import SwiftUI
 import ImageIO
 
+public enum ReadingMode: String, CaseIterable, Codable, Sendable {
+    case pager
+    case vertical
+
+    var label: String {
+        switch self {
+        case .pager: return "Pager"
+        case .vertical: return "Vertical"
+        }
+    }
+}
+
 private enum PageDirection: Int { case forward, backward }
 
 private struct ViewportMaxPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+private struct VisiblePagePreferenceKey: PreferenceKey {
+    static var defaultValue: [Int: CGFloat] = [:] // [pageIndex: distanceToCenter]
+    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
+        // Merge latest measurements; prefer the most recent values
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 
@@ -24,15 +44,86 @@ struct ComicReaderView: View {
     @State private var preheatTask: Task<Void, Never>?
     @State private var viewportMax: CGFloat = 0
 
+    // New state for reading mode and page-based data
+    @AppStorage(.settingsReaderMode) private var readerModeRaw: String = ReadingMode.pager.rawValue
+
+    // Per-comic override storage (only when different from global default)
+    @State private var perComicOverrideRaw: String?
+    private var perComicModeKey: String { "reader.mode." + comic.id.uuidString }
+    private var effectiveModeRaw: String { perComicOverrideRaw ?? readerModeRaw }
+
+    private var readerMode: ReadingMode {
+        ReadingMode(rawValue: effectiveModeRaw) ?? .pager
+    }
+
+    private func setReaderMode(_ mode: ReadingMode) { readerModeRaw = mode.rawValue }
+
+    @MainActor
+    private func loadPerComicModeOverride() {
+        perComicOverrideRaw = UserDefaults.standard.string(forKey: perComicModeKey)
+        // Normalize: if override equals current default, drop it
+        if perComicOverrideRaw == readerModeRaw { perComicOverrideRaw = nil; UserDefaults.standard.removeObject(forKey: perComicModeKey) }
+    }
+
+    @MainActor
+    private func savePerComicModeOverride(_ raw: String?) {
+        // Store only if different from default; otherwise remove override
+        if let raw, raw != readerModeRaw {
+            UserDefaults.standard.set(raw, forKey: perComicModeKey)
+            perComicOverrideRaw = raw
+        } else {
+            UserDefaults.standard.removeObject(forKey: perComicModeKey)
+            perComicOverrideRaw = nil
+        }
+    }
+
+    private func cycleReaderMode() {
+        let all = ReadingMode.allCases
+        let current = readerMode
+        guard let idx = all.firstIndex(of: current) else { savePerComicModeOverride(nil); return }
+        let next = all[(idx + 1) % all.count]
+        // Persist override only if different from default
+        if next.rawValue == readerModeRaw {
+            savePerComicModeOverride(nil)
+        } else {
+            savePerComicModeOverride(next.rawValue)
+        }
+    }
+
+    @State private var pages: [ComicPage] = []
+    @State private var pageImageURLs: [[URL]] = [] // per-page images
+    @State private var pageTitles: [String] = []
+    @State private var pageToFirstFlatIndex: [Int] = [] // map page index to first flat image index
+
+    @State private var verticalVisiblePageIndex: Int = 0
+
     // Settings
     @AppStorage(.settingsReaderDownsampleMaxPixel) private var readerDownsampleMaxPixel: Double = 2048
     @AppStorage(.settingsReaderPreloadRadius) private var readerPreloadRadius: Int = 5
+    @AppStorage(.settingsVerticalPillarboxEnabled) private var verticalPillarboxEnabled: Bool = false
+    @AppStorage(.settingsVerticalPillarboxWidth) private var verticalPillarboxPercent: Double = 0 // 0...50 (% of total width)
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
 
+    private var currentPageIndex: Int {
+        switch readerMode {
+        case .pager:
+            // Map current image selection to owning page index using pageToFirstFlatIndex
+            // Find greatest page whose firstFlatIndex <= selection
+            guard !pageToFirstFlatIndex.isEmpty else { return 0 }
+            var idx = 0
+            for (p, start) in pageToFirstFlatIndex.enumerated() {
+                if selection >= start { idx = p } else { break }
+            }
+            return min(idx, max(0, pageTitles.count - 1))
+        case .vertical:
+            return verticalVisiblePageIndex
+        }
+    }
+
     private var navigationTitleText: String {
-        let t = pageTitle(at: selection)
+        let t = pageTitle(at: currentPageIndex)
         return t.isEmpty ? comic.name : "\(comic.name): \(t)"
     }
 
@@ -62,6 +153,87 @@ struct ComicReaderView: View {
         )
     }
 
+    // Helper to compute dynamic downsample max pixel for a given viewport
+    private func computeDownsampleMaxPixel(for viewport: CGFloat) -> Int {
+        let scaled = max(viewport, 1) * displayScale
+        let dyn = min(Int(readerDownsampleMaxPixel), Int(scaled))
+        return max(256, dyn)
+    }
+
+    // Helper to provide a URL for a flat image index if it's loaded and in range
+    private func urlForFlatIndex(_ idx: Int) -> URL? {
+        (loadedIndices.contains(idx) && idx >= 0 && idx < flatURLs.count) ? flatURLs[idx] : nil
+    }
+
+    // Map a flat image selection index to its owning page index
+    private func pageIndexForImageSelection(_ imageIndex: Int) -> Int {
+        guard !pageToFirstFlatIndex.isEmpty else { return 0 }
+        var idx = 0
+        for (p, start) in pageToFirstFlatIndex.enumerated() {
+            if imageIndex >= start { idx = p } else { break }
+        }
+        return min(idx, max(0, pageTitles.count - 1))
+    }
+
+    // Get the first flat image index for a given page index
+    private func firstImageIndex(forPage page: Int) -> Int {
+        guard page >= 0, page < pageToFirstFlatIndex.count else { return 0 }
+        return pageToFirstFlatIndex[page]
+    }
+
+    private var pagerView: some View {
+        VStack(spacing: 0) {
+            ReaderPager(
+                count: flatURLs.count,
+                selection: $selection,
+                previousSelection: previousSelection,
+                navDirection: $pageDirection,
+                downsampleMaxPixel: { viewport in computeDownsampleMaxPixel(for: viewport) },
+                urlForIndex: { idx in urlForFlatIndex(idx) },
+                onPrevious: { previousPage() },
+                onNext: { nextPage() }
+            )
+            .onPreferenceChange(ViewportMaxPreferenceKey.self) { viewportMax = $0 }
+
+            VStack(spacing: 6) {
+                HStack {
+                    Text("Page")
+                    Spacer()
+                    Text("\(selection + 1) / \(flatURLs.count)")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Slider(
+                    value: pageSliderBinding,
+                    in: 0...Double(max(flatURLs.count - 1, 0)),
+                    step: 1
+                )
+            }
+            .font(.subheadline)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private var verticalReaderView: some View {
+        // Bindings and closures as locals to help the type-checker
+        let downsample: (CGFloat) -> Int = { viewport in computeDownsampleMaxPixel(for: viewport) }
+        return VerticalReader(
+            pages: pages,
+            pageImageURLs: pageImageURLs,
+            loadedIndices: $loadedIndices,
+            viewportMax: $viewportMax,
+            displayScale: displayScale,
+            downsampleMaxPixel: downsample,
+            pillarboxEnabled: $verticalPillarboxEnabled,
+            pillarboxPercent: $verticalPillarboxPercent,
+            externalVisiblePageIndex: $verticalVisiblePageIndex,
+            onVisiblePageChanged: { idx in
+                verticalVisiblePageIndex = idx
+            }
+        )
+    }
+
     var body: some View {
         ZStack {
             // Background
@@ -72,7 +244,14 @@ struct ComicReaderView: View {
                 ProgressView()
                     .controlSize(.large)
                     .padding()
-            } else if flatURLs.isEmpty {
+            } else if readerMode == .pager && flatURLs.isEmpty {
+                ContentUnavailableView(
+                    "No pages to read",
+                    systemImage: "book.closed",
+                    description: Text("This comic has no downloaded images.")
+                )
+                .padding()
+            } else if readerMode == .vertical && pages.isEmpty {
                 ContentUnavailableView(
                     "No pages to read",
                     systemImage: "book.closed",
@@ -80,40 +259,12 @@ struct ComicReaderView: View {
                 )
                 .padding()
             } else {
-                VStack(spacing: 0) {
-                    ReaderPager(
-                        count: flatURLs.count,
-                        selection: $selection,
-                        previousSelection: previousSelection,
-                        navDirection: $pageDirection,
-                        downsampleMaxPixel: { viewportMax in
-                            let scaled = max(viewportMax, 1) * displayScale
-                            let dyn = min(Int(readerDownsampleMaxPixel), Int(scaled))
-                            return max(256, dyn)
-                        },
-                        urlForIndex: { idx in (loadedIndices.contains(idx) && idx >= 0 && idx < flatURLs.count) ? flatURLs[idx] : nil },
-                        onPrevious: { previousPage() },
-                        onNext: { nextPage() }
-                    )
-                    .onPreferenceChange(ViewportMaxPreferenceKey.self) { viewportMax = $0 }
-
-                    VStack(spacing: 6) {
-                        HStack {
-                            Text("Page")
-                            Spacer()
-                            Text("\(selection + 1) / \(flatURLs.count)")
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                        Slider(
-                            value: pageSliderBinding,
-                            in: 0...Double(max(flatURLs.count - 1, 0)),
-                            step: 1
-                        )
+                Group {
+                    if readerMode == .pager {
+                        pagerView
+                    } else {
+                        verticalReaderView
                     }
-                    .font(.subheadline)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
                 }
                 .overlay(alignment: .topLeading) {
                     Button { dismiss() } label: {
@@ -132,40 +283,88 @@ struct ComicReaderView: View {
                     .padding(.top, 8)
                     .padding(.leading, 8)
                 }
+                .overlay(alignment: .topTrailing) {
+                    VStack {
+                        Button(action: { cycleReaderMode() }, label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: readerMode == .pager ? "rectangle.on.rectangle" : "rectangle.split.2x1")
+                                Text(readerMode.label)
+                                    .fontWeight(.semibold)
+                            }
+                            .font(.headline)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 4)
+                        })
+                        .buttonStyle(.plain)
+                        .padding(.top, 8)
+                        .padding(.trailing, 8)
+                        .accessibilityLabel("Toggle reading mode")
+                        .accessibilityHint("Switches between Pager and Vertical modes")
+
+                        HStack(spacing: 8) {
+                            Toggle("Pillarbox", isOn: $verticalPillarboxEnabled)
+                                .labelsHidden()
+                            Slider(value: $verticalPillarboxPercent, in: 0...50, step: 1)
+                                .frame(width: 140)
+                            Text("\(Int(verticalPillarboxPercent))%")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.footnote)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.top, 8)
+                        .padding(.trailing, 8)
+                    }
+                }
             }
         }
-        .toolbar(.hidden, for: .automatic)
         .navigationTitle(navigationTitleText)
+        .toolbar(.hidden, for: .automatic)
         .task {
-            let pages = comic.pages.sorted { $0.index < $1.index }
-            let snapshots: [URL] = pages.flatMap { page in
-                page.images.sorted { $0.index < $1.index }.compactMap { $0.fileURL }
+            await MainActor.run { loadPerComicModeOverride() }
+            // Build page-based arrays + flat arrays for pager
+            let sortedPages = comic.pages.sorted { $0.index < $1.index }
+            var perPageURLs: [[URL]] = []
+            var titles: [String] = []
+            var flat: [URL] = []
+            var firstIndex: [Int] = []
+            var running = 0
+            for page in sortedPages {
+                let urls = page.images.sorted { $0.index < $1.index }.compactMap { $0.fileURL }
+                perPageURLs.append(urls)
+                titles.append(page.title)
+                firstIndex.append(running)
+                running += urls.count
+                flat.append(contentsOf: urls)
             }
-            let titles: [String] = pages.flatMap { page in
-                page.images.sorted { $0.index < $1.index }.compactMap { _ in page.title }
-            }
-            let restored: Int = await MainActor.run { loadPersistedSelection(totalCount: snapshots.count) }
+            let restoredPage: Int = await MainActor.run { loadPersistedPageSelection(totalPages: titles.count) }
 
             await MainActor.run {
-                self.flatURLs = snapshots
-                self.flatTitles = titles
+                self.pages = sortedPages
+                self.pageImageURLs = perPageURLs
+                self.pageTitles = titles
+                self.pageToFirstFlatIndex = firstIndex
+                self.flatURLs = flat
+                self.flatTitles = flat.map { _ in "" } // keep length aligned; titles now per-page
             }
 
-            // Preload around the restored index before showing UI to avoid placeholder flash
-            await ensureLoadedWindow(around: restored, radius: effectivePreloadRadius)
+            let restoredImageIndex = min(max(0, (restoredPage < firstIndex.count ? firstIndex[restoredPage] : 0)), max(flat.count - 1, 0))
+            await ensureLoadedWindow(around: restoredImageIndex, radius: effectivePreloadRadius)
 
-            // Now show the UI
             await MainActor.run { self.isReady = true }
 
-            // Give layout a moment to appear before applying scroll position
             await Task.yield()
 
-            // Apply the selection so the pager scrolls to the correct page
             await MainActor.run {
                 withAnimation(.none) {
                     self.pageDirection = .forward
-                    self.previousSelection = restored
-                    self.selection = restored
+                    self.previousSelection = restoredImageIndex
+                    self.selection = restoredImageIndex
+                    self.verticalVisiblePageIndex = min(max(0, restoredPage), max(titles.count - 1, 0))
                 }
             }
         }
@@ -173,20 +372,90 @@ struct ComicReaderView: View {
             preheatTask?.cancel()
             preheatTask = Task {
                 await ensureLoadedWindow(around: newValue, radius: effectivePreloadRadius)
-                await MainActor.run { savePersistedSelection(newValue) }
+                await MainActor.run {
+                    savePersistedSelection(newValue)
+                    if readerMode == .pager {
+                        savePersistedPage(currentPageIndex)
+                    }
+                    // Keep vertical state in sync with pager selection
+                    verticalVisiblePageIndex = currentPageIndex
+                }
+            }
+        }
+        .onChange(of: verticalVisiblePageIndex) { _, newValue in
+            Task { @MainActor in
+                savePersistedPage(newValue)
+                // Warm images around the first image index of the visible page
+                if newValue >= 0, newValue < pageToFirstFlatIndex.count {
+                    let centerIndex = pageToFirstFlatIndex[newValue]
+                    await ensureLoadedWindow(around: centerIndex, radius: effectivePreloadRadius)
+                }
+                // Keep pager selection in sync with vertical page (no UI impact while in vertical)
+                if newValue >= 0, newValue < pageToFirstFlatIndex.count {
+                    let imgIndex = pageToFirstFlatIndex[newValue]
+                    previousSelection = selection
+                    selection = min(max(0, imgIndex), max(flatURLs.count - 1, 0))
+                }
+            }
+        }
+        .onChange(of: effectiveModeRaw) { oldRaw, newRaw in
+            // Compute source page from the PREVIOUS mode, then map into the new mode.
+            let oldMode = ReadingMode(rawValue: oldRaw) ?? .pager
+            let newMode = ReadingMode(rawValue: newRaw) ?? .pager
+
+            let sourcePage: Int = {
+                switch oldMode {
+                case .pager:
+                    return pageIndexForImageSelection(selection)
+                case .vertical:
+                    return min(max(0, verticalVisiblePageIndex), max(pageTitles.count - 1, 0))
+                }
+            }()
+
+            Task { @MainActor in
+                savePersistedPage(sourcePage)
+                if newMode == .pager {
+                    // Jump pager selection to the first image of the source page
+                    let imgIndex = firstImageIndex(forPage: sourcePage)
+                    withAnimation(.none) {
+                        previousSelection = selection
+                        selection = min(max(0, imgIndex), max(flatURLs.count - 1, 0))
+                        pageDirection = .forward
+                    }
+                    await ensureLoadedWindow(around: selection, radius: effectivePreloadRadius)
+                    savePersistedSelection(selection)
+                    // Keep vertical page in sync as well
+                    verticalVisiblePageIndex = min(max(0, sourcePage), max(pageTitles.count - 1, 0))
+                } else {
+                    // Vertical mode: show the same page and warm around it
+                    verticalVisiblePageIndex = min(max(0, sourcePage), max(pageTitles.count - 1, 0))
+                    if sourcePage >= 0, sourcePage < pageToFirstFlatIndex.count {
+                        let centerIndex = pageToFirstFlatIndex[sourcePage]
+                        await ensureLoadedWindow(around: centerIndex, radius: effectivePreloadRadius)
+                    }
+                }
             }
         }
         .onKeyPress(.leftArrow) {
-            previousPage()
-            return .handled
+            if readerMode == .pager {
+                previousPage()
+                return .handled
+            }
+            return .ignored
         }
         .onKeyPress(.rightArrow) {
-            nextPage()
-            return .handled
+            if readerMode == .pager {
+                nextPage()
+                return .handled
+            }
+            return .ignored
         }
         .onDisappear {
             preheatTask?.cancel()
-            Task { @MainActor in savePersistedSelection(selection) }
+            Task { @MainActor in
+                savePersistedSelection(selection)
+                savePersistedPage(currentPageIndex)
+            }
         }
     }
 
@@ -194,6 +463,10 @@ struct ComicReaderView: View {
 
     private var persistedSelectionKey: String {
         "reader.selection.\(comic.name)|\(comic.url)"
+    }
+
+    private var persistedPageKey: String {
+        "reader.page.\(comic.name)|\(comic.url)"
     }
 
     @MainActor
@@ -206,6 +479,27 @@ struct ComicReaderView: View {
     @MainActor
     private func savePersistedSelection(_ index: Int) {
         UserDefaults.standard.set(index, forKey: persistedSelectionKey)
+    }
+
+    @MainActor
+    private func loadPersistedPageSelection(totalPages: Int) -> Int {
+        if let raw = UserDefaults.standard.object(forKey: persistedPageKey) as? Int, totalPages > 0 {
+            return min(max(0, raw), totalPages - 1)
+        }
+        // Back-compat: if old image index exists, map to page
+        if let old = UserDefaults.standard.object(forKey: persistedSelectionKey) as? Int, totalPages > 0, !pageToFirstFlatIndex.isEmpty {
+            var pageIdx = 0
+            for (p, start) in pageToFirstFlatIndex.enumerated() {
+                if old >= start { pageIdx = p } else { break }
+            }
+            return min(max(0, pageIdx), totalPages - 1)
+        }
+        return 0
+    }
+
+    @MainActor
+    private func savePersistedPage(_ pageIndex: Int) {
+        UserDefaults.standard.set(pageIndex, forKey: persistedPageKey)
     }
 
     // MARK: - Window Loading
@@ -287,8 +581,8 @@ struct ComicReaderView: View {
     }
 
     private func pageTitle(at index: Int) -> String {
-        guard index >= 0, index < flatTitles.count else { return "" }
-        return flatTitles[index]
+        guard index >= 0, index < pageTitles.count else { return "" }
+        return pageTitles[index]
     }
 }
 
@@ -735,6 +1029,160 @@ private struct ZoomablePage: View {
                     }
             )
         }
+    }
+}
+
+// MARK: - VerticalReader and PageColumn
+
+private struct VerticalReader: View {
+    let pages: [ComicPage]
+    let pageImageURLs: [[URL]]
+    @Binding var loadedIndices: Set<Int>
+    @Binding var viewportMax: CGFloat
+    let displayScale: CGFloat
+    let downsampleMaxPixel: (CGFloat) -> Int
+    @Binding var pillarboxEnabled: Bool
+    @Binding var pillarboxPercent: Double // 0...50 (% of total width)
+    @Binding var externalVisiblePageIndex: Int
+    var onVisiblePageChanged: (Int) -> Void
+
+    @State private var containerWidth: CGFloat = 0
+    @State private var containerHeight: CGFloat = 0
+    @State private var lastUserReportedIndex: Int?
+
+    // Added state for throttling visible page updates
+    @State private var visibleUpdateTask: Task<Void, Never>?
+
+    private var perSidePadding: CGFloat {
+        let clampedPercent = min(max(pillarboxPercent, 0), 50)
+        return pillarboxEnabled ? (containerWidth * (clampedPercent / 100) / 2) : 0
+    }
+
+    var body: some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .center, spacing: 24) {
+                    ForEach(pages.indices, id: \.self) { pageIndex in
+                        let title = pages[pageIndex].title
+                        let headerText = title.isEmpty ? "Page \(pageIndex + 1)" : "Page \(pageIndex + 1): \(title)"
+                        Text(headerText)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .multilineTextAlignment(.center)
+
+                        PageColumn(pageIndex: pageIndex,
+                                   urls: pageImageURLs[pageIndex],
+                                   displayScale: displayScale,
+                                   viewportMax: $viewportMax,
+                                   downsampleMaxPixel: downsampleMaxPixel)
+                            .id(pageIndex)
+                            .background(GeometryReader { gp in
+                                let midY = gp.frame(in: .named("verticalScroll")).midY
+                                Color.clear
+                                    .preference(key: VisiblePagePreferenceKey.self, value: [pageIndex: midY])
+                            })
+                    }
+                }
+                .padding(.vertical, 16)
+                .padding(.horizontal, perSidePadding)
+            }
+            .onPreferenceChange(VisiblePagePreferenceKey.self) { midYs in
+                guard !midYs.isEmpty else { return }
+                let centerY = containerHeight / 2
+                // Find nearest page by minimizing distance to centerY
+                if let nearest = midYs.min(by: { abs($0.value - centerY) < abs($1.value - centerY) })?.key {
+                    // Throttle: schedule on next runloop and coalesce rapid updates
+                    visibleUpdateTask?.cancel()
+                    visibleUpdateTask = Task { @MainActor in
+                        await Task.yield()
+                        if nearest != externalVisiblePageIndex {
+                            lastUserReportedIndex = nearest
+                            onVisiblePageChanged(nearest)
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                // When vertical mode appears, jump to the externally requested page.
+                lastUserReportedIndex = nil
+                let target = min(max(0, externalVisiblePageIndex), max(pages.count - 1, 0))
+                if pages.indices.contains(target) {
+                    scrollProxy.scrollTo(target, anchor: .top)
+                }
+            }
+            .onChange(of: externalVisiblePageIndex) { _, newValue in
+                let target = min(max(0, newValue), max(pages.count - 1, 0))
+                // If this change was just reported by the user via visibility tracking, don't fight it.
+                if let userIdx = lastUserReportedIndex, userIdx == target {
+                    // Clear the marker and skip programmatic scroll
+                    lastUserReportedIndex = nil
+                    return
+                }
+                if pages.indices.contains(target) {
+                    withAnimation(.none) {
+                        scrollProxy.scrollTo(target, anchor: .top)
+                    }
+                }
+            }
+        }
+        .coordinateSpace(name: "verticalScroll")
+        .background(
+            GeometryReader { gp in
+                Color.clear
+                    .onAppear {
+                        viewportMax = max(gp.size.width, gp.size.height)
+                        containerWidth = gp.size.width
+                        containerHeight = gp.size.height
+                    }
+                    .onChange(of: gp.size.width) { _, _ in
+                        viewportMax = max(gp.size.width, gp.size.height)
+                        containerWidth = gp.size.width
+                    }
+                    .onChange(of: gp.size.height) { _, _ in
+                        viewportMax = max(gp.size.width, gp.size.height)
+                        containerHeight = gp.size.height
+                    }
+            }
+        )
+        .background(Color.black.ignoresSafeArea())
+    }
+}
+
+private struct PageColumn: View {
+    let pageIndex: Int
+    let urls: [URL]
+    let displayScale: CGFloat
+    @Binding var viewportMax: CGFloat
+    let downsampleMaxPixel: (CGFloat) -> Int
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(urls.indices, id: \.self) { i in
+                let url = urls[i]
+                CGImageLoader(url: url, maxPixelProvider: { CGFloat(downsampleMaxPixel(viewportMax)) }, content: { cg in
+                    if let cg {
+                        let imageW = CGFloat(cg.width)
+                        let imageH = CGFloat(cg.height)
+                        let aspect = imageW / max(imageH, 1)
+                        // Use Pager-like interpolation logic based on fitted width
+                        let targetPixelsW = viewportMax * displayScale
+                        let targetPixelsH = (viewportMax / max(aspect, 0.0001)) * displayScale
+                        let isUpscalingAt1x = (targetPixelsW > imageW) || (targetPixelsH > imageH)
+
+                        Image(decorative: cg, scale: 1, orientation: .up)
+                            .resizable()
+                            .interpolation(isUpscalingAt1x ? .none : .high)
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    } else {
+                        // Provide a reasonable placeholder height so it isn't tiny
+                        ReaderPlaceholder(maxWidth: viewportMax, maxHeight: viewportMax)
+                            .frame(maxWidth: .infinity, minHeight: 200)
+                    }
+                })
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

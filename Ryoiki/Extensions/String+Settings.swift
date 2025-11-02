@@ -8,11 +8,16 @@
 import Foundation
 
 extension String {
-    static var settingsLibraryItemsPerRow: String { "settings.library.itemsPerRow" }
-    static var settingsReaderDownsampleMaxPixel: String { "settings.reader.downsampleMaxPixel" }
-    static var settingsReaderPreloadRadius: String { "settings.reader.preloadRadius" }
+    static let settingsLibraryItemsPerRow = "settings.library.itemsPerRow"
 
-    static var settingsNetworkUserAgent: String { "settings.network.userAgent" }
-    static var settingsNetworkPerHost: String { "settings.network.perHost" }
-    static var settingsDownloadMaxConcurrent: String { "settings.download.maxConcurrent" }
+    static let settingsReaderMode = "settings.reader.mode"
+    static let settingsReaderDownsampleMaxPixel = "settings.reader.downsampleMaxPixel"
+    static let settingsReaderPreloadRadius = "settings.reader.preloadRadius"
+    static let settingsVerticalPillarboxEnabled = "settings.reader.vertical.pillarbox.enabled"
+    static let settingsVerticalPillarboxWidth = "settings.reader.vertical.pillarbox.width"
+
+    static let settingsNetworkUserAgent = "settings.network.userAgent"
+    static let settingsNetworkPerHost = "settings.network.perHost"
+    static let settingsDownloadMaxConcurrent = "settings.download.maxConcurrent"
+
 }

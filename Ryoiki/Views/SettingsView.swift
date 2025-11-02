@@ -26,6 +26,9 @@ struct GeneralSettingsView: View {
     @AppStorage(.settingsDownloadMaxConcurrent) private var maxConcurrentDownloads: Int = 10
     @AppStorage(.settingsNetworkPerHost) private var maxConnectionsPerHost: Int = 6
 
+    @AppStorage(.settingsVerticalPillarboxEnabled) private var verticalPillarboxEnabled: Bool = false
+    @AppStorage(.settingsVerticalPillarboxWidth) private var verticalPillarboxWidth: Double = 0
+
     var body: some View {
         Form {
             Section("Library") {
@@ -48,6 +51,18 @@ struct GeneralSettingsView: View {
                 LabeledContent("Max connections per host") {
                     Stepper(String(maxConnectionsPerHost), value: $maxConnectionsPerHost, in: 1...12, step: 1)
                 }
+            }
+            Section("Reader") {
+                Toggle("Vertical mode pillarbox", isOn: $verticalPillarboxEnabled)
+                HStack {
+                    Text("Pillarbox width")
+                    Slider(value: $verticalPillarboxWidth, in: 0...120, step: 1)
+                        .frame(maxWidth: 200)
+                    Text("\(Int(verticalPillarboxWidth)) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                .disabled(!verticalPillarboxEnabled)
             }
         }
         .formStyle(.grouped)

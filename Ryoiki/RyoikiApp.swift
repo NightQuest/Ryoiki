@@ -20,7 +20,10 @@ struct RyoikiApp: App {
             .settingsReaderDownsampleMaxPixel: 2048,
             .settingsNetworkUserAgent: defaultUserAgent,
             .settingsNetworkPerHost: 6,
-            .settingsDownloadMaxConcurrent: 10
+            .settingsDownloadMaxConcurrent: 10,
+            .settingsReaderMode: "pager",
+            .settingsVerticalPillarboxEnabled: false,
+            .settingsVerticalPillarboxWidth: 0
         ])
 
         do {
