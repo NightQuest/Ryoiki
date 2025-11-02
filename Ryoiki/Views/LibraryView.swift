@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import Foundation
 
 struct LibraryView: View {
     @Environment(\.modelContext) private var context
@@ -138,11 +139,13 @@ struct LibraryView: View {
                           allowsMultipleSelection: false) { result in
                 do {
                     let urls = try result.get()
-                    if let url = urls.first {
-                        let data = try Data(contentsOf: url)
-                        _ = try viewModel.importProfileData(data, context: context)
-                        alertMessage = "Imported profile from \(url.lastPathComponent)."
-                    }
+                    guard let url = urls.first else { return }
+
+                    // Let the document handle security-scoped access and validation
+                    let doc = try ComicProfileDocument.load(from: url)
+
+                    _ = try viewModel.importProfileData(doc.data, context: context)
+                    alertMessage = "Imported profile from \(url.lastPathComponent)."
                 } catch {
                     alertMessage = "Failed to import: \(error.localizedDescription)"
                 }
