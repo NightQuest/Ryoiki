@@ -28,7 +28,7 @@ extension ComicManager {
             try Task.checkCancellation()
             let id = scan.comicID
             var desc = FetchDescriptor<ComicImage>(
-                predicate: #Predicate { $0.comicPage.comic.id == id && $0.downloadPath != "" },
+                predicate: #Predicate { $0.comicPage.comic.id == id && $0.fileURL != nil },
                 sortBy: [
                     SortDescriptor(\.comicPage.index),
                     SortDescriptor(\.index)
@@ -40,7 +40,8 @@ extension ComicManager {
             if batch.isEmpty { break }
 
             for img in batch {
-                guard let fsPath = scan.resolvedPath(img.downloadPath) else {
+                guard let downloadPath = img.fileURL?.absoluteString,
+                      let fsPath = scan.resolvedPath(downloadPath) else {
                     missing.append(img)
                     continue
                 }
@@ -58,7 +59,7 @@ extension ComicManager {
 
     private struct DownloadResult {
         let imageID: UUID
-        let fileURLString: String
+        let fileURL: URL?
         let filePath: String
         let coverData: Data?
         let wrote: Bool
@@ -83,7 +84,7 @@ extension ComicManager {
         let fileManager = FileManager.default
         guard let refererURL = URL(string: input.pageURL) else {
             return .init(imageID: input.imageID,
-                         fileURLString: "",
+                         fileURL: nil,
                          filePath: "",
                          coverData: nil,
                          wrote: false,
@@ -97,7 +98,7 @@ extension ComicManager {
         if input.imageURL.hasPrefix("data:") {
             guard let (mediatype, data) = decodeDataURL(input.imageURL) else {
                 return .init(imageID: input.imageID,
-                             fileURLString: "",
+                             fileURL: nil,
                              filePath: "",
                              coverData: nil,
                              wrote: false,
@@ -109,7 +110,7 @@ extension ComicManager {
 
             if !overwrite && fileManager.fileExists(atPath: fileURL.path) {
                 return .init(imageID: input.imageID,
-                             fileURLString: fileURL.absoluteString,
+                             fileURL: fileURL,
                              filePath: fileURL.path,
                              coverData: nil,
                              wrote: false,
@@ -119,7 +120,7 @@ extension ComicManager {
             try data.write(to: fileURL, options: [])
             let coverData = input.needsCover ? data : nil
             return .init(imageID: input.imageID,
-                         fileURLString: fileURL.absoluteString,
+                         fileURL: fileURL,
                          filePath: fileURL.path,
                          coverData: coverData,
                          wrote: true,
@@ -129,7 +130,7 @@ extension ComicManager {
         // Network image path
         guard let imageURL = URL(string: input.imageURL) else {
             return .init(imageID: input.imageID,
-                         fileURLString: "",
+                         fileURL: nil,
                          filePath: "",
                          coverData: nil,
                          wrote: false,
@@ -140,7 +141,7 @@ extension ComicManager {
             guard (200..<300).contains(response.statusCode) else {
                 try? fileManager.removeItem(at: tempURL)
                 return .init(imageID: input.imageID,
-                             fileURLString: "",
+                             fileURL: nil,
                              filePath: "",
                              coverData: nil,
                              wrote: false,
@@ -156,7 +157,7 @@ extension ComicManager {
 
             if !overwrite && fileManager.fileExists(atPath: fileURL.path) {
                 return .init(imageID: input.imageID,
-                             fileURLString: fileURL.absoluteString,
+                             fileURL: fileURL,
                              filePath: fileURL.path,
                              coverData: nil,
                              wrote: false,
@@ -167,7 +168,7 @@ extension ComicManager {
             try fileManager.moveItem(at: tempURL, to: fileURL)
             let coverData = input.needsCover ? (try? Data(contentsOf: fileURL)) : nil
             return .init(imageID: input.imageID,
-                         fileURLString: fileURL.absoluteString,
+                         fileURL: fileURL,
                          filePath: fileURL.path,
                          coverData: coverData,
                          wrote: true,
@@ -175,7 +176,7 @@ extension ComicManager {
         } catch let clientError as HTTPClientError {
             if case .cancelled = clientError {
                 return .init(imageID: input.imageID,
-                             fileURLString: "",
+                             fileURL: nil,
                              filePath: "",
                              coverData: nil,
                              wrote: false,
@@ -200,7 +201,7 @@ extension ComicManager {
 
         await CommitGate.shared.waitIfPaused()
 
-        // Helper to resolve a stored downloadPath (which may be a URL string or plain path) into a filesystem path
+        // Helper to resolve a stored fileURL (which may be a URL string or plain path) into a filesystem path
         func resolvedFileSystemPath(from storedPath: String) -> String? {
             guard !storedPath.isEmpty else { return nil }
             if let url = URL(string: storedPath), url.scheme != nil {
@@ -222,10 +223,10 @@ extension ComicManager {
         // Build a minimal working set of images to download using background-friendly fetches
         let comicID = comic.id
 
-        // 1) Images that have not been downloaded yet (downloadPath == "")
+        // 1) Images that have not been downloaded yet
         let freshImages: [ComicImage] = try context.fetch(
             FetchDescriptor<ComicImage>(
-                predicate: #Predicate { $0.comicPage.comic.id == comicID && $0.downloadPath == "" },
+                predicate: #Predicate { $0.comicPage.comic.id == comicID && $0.fileURL == nil },
                 sortBy: [
                     SortDescriptor(\.comicPage.index),
                     SortDescriptor(\.index)
@@ -308,11 +309,13 @@ extension ComicManager {
             func processResult(_ result: DownloadResult) async throws {
                 if result.wrote { filesWritten += 1 }
                 if let imageRef = byID[result.imageID] {
-                    imageRef.downloadPath = result.fileURLString
+                    imageRef.fileURL = result.fileURL
 
                     let comicRef = imageRef.comicPage.comic
                     if result.didDownload {
                         comicRef.downloadedImageCount += 1
+                        imageRef.isDownloaded = true
+                        imageRef.dateDownloaded = Date.now
                     }
 
                     if let cover = result.coverData, comicRef.coverImage == nil {

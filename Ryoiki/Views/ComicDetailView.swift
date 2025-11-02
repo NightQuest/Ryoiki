@@ -34,10 +34,9 @@ struct ComicDetailView: View {
             if let data = comic.coverImage, let img = imageFromData(data) {
                 img
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                     .frame(width: 240, height: 320)
-                    .clipped()
-                    .cornerRadius(12)
                     .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
             } else {
                 ZStack {
@@ -121,6 +120,30 @@ struct ComicDetailView: View {
                 .padding(.top, 4)
             }
 
+            if comic.lastDateFetched != nil {
+                let formatter = RelativeDateTimeFormatter()
+                HStack(spacing: 6) {
+                    Text("Last Page Indexed")
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Text(formatter.localizedString(for: comic.lastDateFetched!, relativeTo: Date.now))
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if comic.lastDateDownloaded != nil {
+                let formatter = RelativeDateTimeFormatter()
+                HStack(spacing: 6) {
+                    Text("Last Page Downloaded")
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Text(formatter.localizedString(for: comic.lastDateDownloaded!, relativeTo: Date.now))
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             HStack(spacing: 8) {
                 if comic.pageCount > 0 { metricChip(systemImage: "doc.on.doc", "\(comic.pageCount) pages") }
                 if comic.imageCount > 0 { metricChip(systemImage: "photo.on.rectangle", "\(comic.imageCount) images") }
@@ -170,7 +193,8 @@ struct ComicDetailView: View {
                     .disabled(isFetching || isUpdating)
             }
 
-            if onUpdate != nil {
+            if onUpdate != nil &&
+                comic.pageCount > 0 {
                 Button { onUpdate?() } label: { Label("Update", systemImage: "square.and.arrow.down") }
                     .buttonStyle(.bordered)
                     .disabled(isFetching || isUpdating)

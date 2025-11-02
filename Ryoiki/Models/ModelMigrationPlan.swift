@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-typealias CurrentComicSchema = ComicSchemaV4
+typealias CurrentComicSchema = ComicSchemaV5
 
 typealias Comic = CurrentComicSchema.Comic
 typealias ComicPage = CurrentComicSchema.ComicPage
@@ -21,6 +21,10 @@ enum ComicMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: ComicSchemaV3.self,
                 toVersion: ComicSchemaV4.self
+            ),
+            .lightweight(
+                fromVersion: ComicSchemaV4.self,
+                toVersion: ComicSchemaV5.self
             )
         ]
     }
@@ -30,6 +34,7 @@ enum ComicMigrationPlan: SchemaMigrationPlan {
         ComicSchemaV1.self,
         ComicSchemaV2.self,
         ComicSchemaV3.self,
-        ComicSchemaV4.self
+        ComicSchemaV4.self,
+        ComicSchemaV5.self
     ]
 }

@@ -55,11 +55,23 @@ extension Comic {
         pages.reduce(0) { $0 + $1.images.count }
     }
 
+    var lastDateFetched: Date? {
+        self.pages.compactMap { $0.dateFetched }.max()
+    }
+
+    var lastDateDownloaded: Date? {
+        self.pages.compactMap { $0.images.compactMap { $0.dateDownloaded }.max() }.max()
+    }
+
     func hasAnyDownloadedImage(fileManager: FileManager = .default) -> Bool {
         for page in pages {
             for image in page.images {
-                if let url = image.fileURL, fileManager.fileExists(atPath: url.path) {
-                    return true
+                if let url = image.fileURL, url.scheme != nil {
+                    do {
+                        return try url.checkResourceIsReachable()
+                    } catch {
+                        return false
+                    }
                 }
             }
         }
@@ -72,8 +84,12 @@ extension Comic {
         let remaining = pages.filter { page in
             if page.images.isEmpty { return true }
             for img in page.images {
-                if let url = img.fileURL {
-                    if !fileManager.fileExists(atPath: url.path) { return true }
+                if let url = img.fileURL, url.scheme != nil {
+                    do {
+                        return try !url.checkResourceIsReachable()
+                    } catch {
+                        return true
+                    }
                 } else {
                     return true
                 }

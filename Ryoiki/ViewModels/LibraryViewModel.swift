@@ -13,17 +13,11 @@ nonisolated private func applyCachedFieldUpdates(for comic: Comic, using fm: Fil
     for page in pages {
         imageCount += page.images.count
         for image in page.images {
-            let path = image.downloadPath
-            if path.isEmpty { continue }
-            let fsPath: String
-            if let url = URL(string: path), url.scheme != nil {
-                fsPath = url.path
-            } else {
-                fsPath = path
-            }
-            if fm.fileExists(atPath: fsPath) {
+            guard let path: URL = image.fileURL else { continue }
+
+            if fm.fileExists(atPath: path.absoluteString) {
                 downloadedCount += 1
-                if firstCoverPath.isEmpty { firstCoverPath = fsPath }
+                if firstCoverPath.isEmpty { firstCoverPath = path.absoluteString }
             }
         }
     }
@@ -227,13 +221,11 @@ final class LibraryViewModel {
                         // Update stored paths to reflect the new folder location
                         for page in bgComic.pages {
                             for image in page.images {
-                                guard !image.downloadPath.isEmpty else { continue }
-                                if let url = URL(string: image.downloadPath), url.scheme != nil {
+                                guard let url: URL = image.fileURL else { continue }
+                                if url.scheme != nil {
                                     let updatedPath = url.path.replacingOccurrences(of: oldPath, with: newPath)
                                     let newFileURL = URL(fileURLWithPath: updatedPath)
-                                    image.downloadPath = newFileURL.absoluteString
-                                } else {
-                                    image.downloadPath = image.downloadPath.replacingOccurrences(of: oldPath, with: newPath)
+                                    image.fileURL = newFileURL
                                 }
                             }
                         }
