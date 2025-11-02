@@ -5,6 +5,7 @@ import Foundation
 
 struct LibraryView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Query(sort: \Comic.name) private var comics: [Comic]
     @Binding var isEditingComic: Bool
     @Binding var isDisplayingComicPages: Bool
@@ -101,20 +102,39 @@ struct LibraryView: View {
             } label: {
                 Label("Details", systemImage: "info.circle")
             }
-            .disabled(externalSelectedComic == nil || isSelectedComicBusy)
+            .disabled(externalSelectedComic == nil)
             .buttonStyle(.bordered)
 
             Spacer()
 
-            Slider(value: Binding<Double>(
-                get: { Double(itemsPerRowPreference) },
-                set: { itemsPerRowPreference = Int($0.rounded()) }
-            ), in: 2...10, step: 1)
-            .labelsHidden()
-            .controlSize(.small)
-            .frame(width: 120)
-            .help("Adjust items per row")
+            if horizontalSizeClass != .compact {
+                Slider(value: Binding<Double>(
+                    get: { Double(itemsPerRowPreference) },
+                    set: { itemsPerRowPreference = Int($0.rounded()) }
+                ), in: 2...10, step: 1)
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 120)
+                .help("Adjust items per row")
+            }
         }
+
+#if os(iOS)
+        if horizontalSizeClass == .compact {
+            ToolbarItem(placement: .bottomBar) {
+                HStack(spacing: 12) {
+                    Image(systemName: "square.grid.2x2")
+                        .foregroundStyle(.secondary)
+                    Slider(value: Binding<Double>(
+                        get: { Double(itemsPerRowPreference) },
+                        set: { itemsPerRowPreference = Int($0.rounded()) }
+                    ), in: 2...10, step: 1)
+                    .tint(.accentColor)
+                }
+                .accessibilityLabel(Text("Adjust items per row"))
+            }
+        }
+#endif
     }
 
     var body: some View {

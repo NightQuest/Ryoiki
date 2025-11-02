@@ -25,18 +25,18 @@ struct ComicDetailView: View {
     var isUpdating: Bool = false
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var isDescriptionExpanded: Bool = false
-    @State private var isHoveringProgress: Bool = false
 
-    private var coverImageView: some View {
+    private func coverImageView(width: CGFloat, height: CGFloat) -> some View {
         Group {
             if let data = comic.coverImage, let img = imageFromData(data) {
                 img
                     .resizable()
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .frame(width: 240, height: 320)
+                    .frame(width: width, height: height)
                     .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
             } else {
                 ZStack {
@@ -46,7 +46,7 @@ struct ComicDetailView: View {
                         .imageScale(.large)
                         .foregroundStyle(.secondary)
                 }
-                .frame(width: 240, height: 320)
+                .frame(width: width, height: height)
                 .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
             }
         }
@@ -58,21 +58,16 @@ struct ComicDetailView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 8)
-                    ZStack {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                            .opacity(isHoveringProgress ? 0 : 1)
-                        if isHoveringProgress {
-                            Button {
-                                if isUpdating { onCancelUpdate?() } else { onCancelFetch?() }
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Cancel")
-                        }
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Button {
+                        if isUpdating { onCancelUpdate?() } else { onCancelFetch?() }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
                     }
+                    .buttonStyle(.plain)
+                    .help("Cancel")
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
@@ -82,9 +77,6 @@ struct ComicDetailView: View {
                 .padding(8)
                 .transition(.opacity.combined(with: .scale))
                 .animation(.default, value: isFetching || isUpdating)
-                .onHover { hovering in
-                    withAnimation(.easeInOut(duration: 0.15)) { isHoveringProgress = hovering }
-                }
             }
         }
     }
@@ -158,46 +150,83 @@ struct ComicDetailView: View {
             }
             .padding(.top, 6)
 
-            actionsRow
+            actionsRow(isCompact: horizontalSizeClass == .compact)
                 .padding(.top, 12)
         }
     }
 
-    private var actionsRow: some View {
-        HStack(spacing: 12) {
-            if onRead != nil {
-                Button {
-                    onRead?()
-                } label: {
-                    Label("Read Comic", systemImage: "book")
-                        .frame(minWidth: 0)
+    private func actionsRow(isCompact: Bool) -> some View {
+        Group {
+            if isCompact {
+                VStack(alignment: .leading, spacing: 12) {
+                    if onRead != nil {
+                        Button { onRead?() } label: {
+                            Label("Read Comic", systemImage: "book")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+
+                    if let url = URL(string: comic.url), !comic.url.isEmpty {
+                        Link(destination: url) {
+                            Label("Home Page", systemImage: "safari")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    if onEdit != nil {
+                        Button { onEdit?() } label: { Label("Edit", systemImage: "pencil")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    if onFetch != nil {
+                        Button { onFetch?() } label: { Label("Fetch", systemImage: "tray.and.arrow.down")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isFetching || isUpdating)
+                    }
+
+                    if onUpdate != nil && comic.pageCount > 0 {
+                        Button { onUpdate?() } label: { Label("Update", systemImage: "square.and.arrow.down")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isFetching || isUpdating)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-            }
+            } else {
+                HStack(spacing: 12) {
+                    if onRead != nil {
+                        Button { onRead?() } label: { Label("Read Comic", systemImage: "book").frame(minWidth: 0) }
+                            .buttonStyle(.borderedProminent)
+                    }
 
-            if let url = URL(string: comic.url), !comic.url.isEmpty {
-                Link(destination: url) {
-                    Label("Home Page", systemImage: "safari")
+                    if let url = URL(string: comic.url), !comic.url.isEmpty {
+                        Link(destination: url) { Label("Home Page", systemImage: "safari") }
+                            .buttonStyle(.bordered)
+                    }
+
+                    if onEdit != nil {
+                        Button { onEdit?() } label: { Label("Edit", systemImage: "pencil") }
+                            .buttonStyle(.bordered)
+                    }
+
+                    if onFetch != nil {
+                        Button { onFetch?() } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
+                            .buttonStyle(.bordered)
+                            .disabled(isFetching || isUpdating)
+                    }
+
+                    if onUpdate != nil && comic.pageCount > 0 {
+                        Button { onUpdate?() } label: { Label("Update", systemImage: "square.and.arrow.down") }
+                            .buttonStyle(.bordered)
+                            .disabled(isFetching || isUpdating)
+                    }
                 }
-                .buttonStyle(.bordered)
-            }
-
-            if onEdit != nil {
-                Button { onEdit?() } label: { Label("Edit", systemImage: "pencil") }
-                    .buttonStyle(.bordered)
-            }
-
-            if onFetch != nil {
-                Button { onFetch?() } label: { Label("Fetch", systemImage: "tray.and.arrow.down") }
-                    .buttonStyle(.bordered)
-                    .disabled(isFetching || isUpdating)
-            }
-
-            if onUpdate != nil &&
-                comic.pageCount > 0 {
-                Button { onUpdate?() } label: { Label("Update", systemImage: "square.and.arrow.down") }
-                    .buttonStyle(.bordered)
-                    .disabled(isFetching || isUpdating)
             }
         }
     }
@@ -218,10 +247,22 @@ struct ComicDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 24) {
-                    coverImageView
-                    titleBlock
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                let isCompact = (horizontalSizeClass == .compact)
+                Group {
+                    if isCompact {
+                        VStack(alignment: .center, spacing: 16) {
+                            coverImageView(width: 180, height: 240)
+                                .frame(maxWidth: .infinity)
+                            titleBlock
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        HStack(alignment: .top, spacing: 24) {
+                            coverImageView(width: 240, height: 320)
+                            titleBlock
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                 }
                 .padding(16)
             }
