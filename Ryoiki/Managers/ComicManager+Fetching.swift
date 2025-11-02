@@ -88,7 +88,7 @@ extension ComicManager {
             previousURL: previousURL,
             pendingPages: [],
             preparedSinceLastCommit: 0,
-            commitThreshold: 100,
+            commitThreshold: 50,
             initiallyEmpty: initiallyEmpty
         )
 

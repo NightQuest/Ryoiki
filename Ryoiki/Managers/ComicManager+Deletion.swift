@@ -13,6 +13,8 @@ extension ComicManager {
     func deleteDownloadFolder(for comic: Comic, in baseFolder: URL) {
         let fm = FileManager.default
         let folder = baseFolder.appendingPathComponent(comic.name.sanitizedForFileName())
-        if fm.fileExists(atPath: folder.path) { try? fm.removeItem(at: folder) }
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: folder.path, isDirectory: &isDirectory) &&
+            isDirectory.boolValue { try? fm.removeItem(at: folder) }
     }
 }

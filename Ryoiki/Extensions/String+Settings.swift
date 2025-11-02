@@ -13,6 +13,6 @@ extension String {
     static var settingsReaderPreloadRadius: String { "settings.reader.preloadRadius" }
 
     static var settingsNetworkUserAgent: String { "settings.network.userAgent" }
-    static var settingsDownloadMaxConcurrent: String { "settings.download.maxConcurrent" }
     static var settingsNetworkPerHost: String { "settings.network.perHost" }
+    static var settingsDownloadMaxConcurrent: String { "settings.download.maxConcurrent" }
 }
