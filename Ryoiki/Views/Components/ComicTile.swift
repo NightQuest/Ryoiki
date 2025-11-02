@@ -69,26 +69,6 @@ struct ComicTile: View {
                 }
                 .frame(idealWidth: 250, maxWidth: 250)
                 .aspectRatio(0.75, contentMode: .fit)
-                .overlay(alignment: .bottom) {
-                    if isFetching || isUpdating {
-                        HStack(spacing: 8) {
-                            Text(isUpdating ? "Updating…" : "Fetching…")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Spacer(minLength: 8)
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(Capsule().stroke(.quaternary, lineWidth: 1))
-                        .padding(8)
-                        .transition(.opacity.combined(with: .scale))
-                        .animation(.default, value: isFetching || isUpdating)
-                    }
-                }
                 .overlay(
                     RoundedRectangle(cornerRadius: Layout.cornerRadius, style: .continuous)
                         .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)

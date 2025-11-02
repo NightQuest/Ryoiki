@@ -13,6 +13,7 @@ struct ComicGrid: View {
     let onUpdate: ((Comic) -> Void)?
     let onOpenPages: ((Comic) -> Void)?
     let onRead: ((Comic) -> Void)?
+    let onOpenDetails: ((Comic) -> Void)?
 
     @Environment(\.modelContext) private var modelContext
 
@@ -40,6 +41,10 @@ struct ComicGrid: View {
                                   overridePageCount: comic.undownloadedPageCount())
                         .contentShape(Rectangle())
                         .onTapGesture { selectedComic = comic }
+                        .onTapGesture(count: 2) {
+                            selectedComic = comic
+                            onOpenDetails?(comic)
+                        }
                     },
                     contextMenu: { comic, _ in
                         Group {

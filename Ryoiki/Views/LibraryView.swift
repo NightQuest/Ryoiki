@@ -9,7 +9,7 @@ struct LibraryView: View {
     @Binding var isDisplayingComicPages: Bool
     @Binding var isDisplayingReader: Bool
     @Binding var externalSelectedComic: Comic?
-    @Binding var displayInspector: Bool
+    @Binding var isDisplayingComicDetails: Bool
     @AppStorage(.settingsLibraryItemsPerRow) private var itemsPerRowPreference: Int = 6
     @State private var viewModel = LibraryViewModel()
     @State private var alertMessage: String?
@@ -38,7 +38,6 @@ struct LibraryView: View {
                 onEdit: { comic in
                     externalSelectedComic = comic
                     isEditingComic = true
-                    displayInspector = false
                 },
                 onFetch: { comic in
                     externalSelectedComic = comic
@@ -51,12 +50,14 @@ struct LibraryView: View {
                 onOpenPages: { comic in
                     externalSelectedComic = comic
                     isDisplayingComicPages = true
-                    displayInspector = false
                 },
                 onRead: { comic in
                     externalSelectedComic = comic
                     isDisplayingReader = true
-                    displayInspector = false
+                },
+                onOpenDetails: { comic in
+                    externalSelectedComic = comic
+                    isDisplayingComicDetails = true
                 }
             )
         }
@@ -65,65 +66,26 @@ struct LibraryView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
+            let isSelectedComicBusy: Bool = {
+                if let c = externalSelectedComic {
+                    return viewModel.isFetching(comic: c) || viewModel.isUpdating(comic: c)
+                }
+                return false
+            }()
+
             Button {
                 viewModel.isAddingComic = true
-                displayInspector = false
             } label: {
                 Label("Add Web Comic", systemImage: "plus.app")
             }
             .buttonStyle(.borderedProminent)
 
             Button {
-                isEditingComic = true
-                displayInspector = false
-            } label: {
-                Label("Edit", systemImage: "pencil")
-            }
-            .disabled(externalSelectedComic == nil)
-            .buttonStyle(.bordered)
-
-            Button {
-                if let comic = externalSelectedComic {
-                    if !viewModel.isFetching(comic: comic) {
-                        viewModel.fetch(comic: comic, context: context)
-                    } else {
-                        viewModel.cancelFetch(for: comic)
-                    }
-                }
-            } label: {
-                if let comic = externalSelectedComic, viewModel.isFetching(comic: comic) {
-                    Label("Cancel", systemImage: "xmark.circle")
-                } else {
-                    Label("Fetch", systemImage: "tray.and.arrow.down")
-                }
-            }
-            .disabled(externalSelectedComic == nil)
-            .buttonStyle(.bordered)
-
-            Button {
-                if let comic = externalSelectedComic {
-                    if !viewModel.isUpdating(comic: comic) {
-                        viewModel.update(comic: comic, context: context)
-                    } else {
-                        viewModel.cancelUpdate(for: comic)
-                    }
-                }
-            } label: {
-                if let comic = externalSelectedComic, viewModel.isUpdating(comic: comic) {
-                    Label("Cancel", systemImage: "xmark.circle")
-                } else {
-                    Label("Update", systemImage: "square.and.arrow.down")
-                }
-            }
-            .disabled(externalSelectedComic == nil)
-            .buttonStyle(.bordered)
-
-            Button {
                 prepareExportProfile()
             } label: {
                 Label("Export Profile", systemImage: "square.and.arrow.up")
             }
-            .disabled(externalSelectedComic == nil)
+            .disabled(externalSelectedComic == nil || isSelectedComicBusy)
             .buttonStyle(.bordered)
 
             Button {
@@ -134,22 +96,11 @@ struct LibraryView: View {
             .buttonStyle(.bordered)
 
             Button {
-                // Open the selected comic in the full-window reader
-                isDisplayingReader = true
-                displayInspector = false
+                isDisplayingComicDetails = true
             } label: {
-                Label("Read", systemImage: "book")
+                Label("Details", systemImage: "info.circle")
             }
-            .disabled(externalSelectedComic == nil)
-            .buttonStyle(.bordered)
-
-            Button {
-                isDisplayingComicPages = true
-                displayInspector = false
-            } label: {
-                Label("Images", systemImage: "square.grid.3x3")
-            }
-            .disabled(externalSelectedComic == nil)
+            .disabled(externalSelectedComic == nil || isSelectedComicBusy)
             .buttonStyle(.bordered)
 
             Spacer()
@@ -182,7 +133,9 @@ struct LibraryView: View {
                     alertMessage = "Failed to export: \(error.localizedDescription)"
                 }
             })
-            .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
+            .fileImporter(isPresented: $isImporting,
+                          allowedContentTypes: [.json],
+                          allowsMultipleSelection: false) { result in
                 do {
                     let urls = try result.get()
                     if let url = urls.first {
@@ -219,6 +172,24 @@ struct LibraryView: View {
             .navigationDestination(isPresented: $isDisplayingReader) {
                 if let comic = externalSelectedComic {
                     ComicReaderView(comic: comic)
+                } else {
+                    ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
+                }
+            }
+            .navigationDestination(isPresented: $isDisplayingComicDetails) {
+                if let comic = externalSelectedComic {
+                    ComicDetailView(
+                        comic: comic,
+                        onRead: { isDisplayingReader = true },
+                        onEdit: { isEditingComic = true },
+                        onFetch: { viewModel.fetch(comic: comic, context: context) },
+                        onUpdate: { viewModel.update(comic: comic, context: context) },
+                        onOpenImages: { isDisplayingComicPages = true },
+                        onCancelFetch: { viewModel.cancelFetch(for: comic) },
+                        onCancelUpdate: { viewModel.cancelUpdate(for: comic) },
+                        isFetching: viewModel.isFetching(comic: comic),
+                        isUpdating: viewModel.isUpdating(comic: comic)
+                    )
                 } else {
                     ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
                 }
