@@ -17,7 +17,7 @@ struct RyoikiApp: App {
         UserDefaults.standard.register(defaults: [
             .settingsLibraryItemsPerRow: 6,
             .settingsReaderPreloadRadius: 10,
-            .settingsReaderDownsampleMaxPixel: 2048,
+            .settingsReaderDownsampleMaxPixel: 10240,
             .settingsNetworkUserAgent: defaultUserAgent,
             .settingsNetworkPerHost: 6,
             .settingsDownloadMaxConcurrent: 10,

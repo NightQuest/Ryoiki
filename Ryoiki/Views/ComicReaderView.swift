@@ -98,7 +98,7 @@ struct ComicReaderView: View {
     @State private var verticalVisiblePageIndex: Int = 0
 
     // Settings
-    @AppStorage(.settingsReaderDownsampleMaxPixel) private var readerDownsampleMaxPixel: Double = 2048
+    @AppStorage(.settingsReaderDownsampleMaxPixel) private var readerDownsampleMaxPixel: Double = 10240
     @AppStorage(.settingsReaderPreloadRadius) private var readerPreloadRadius: Int = 5
     @AppStorage(.settingsVerticalPillarboxEnabled) private var verticalPillarboxEnabled: Bool = false
     @AppStorage(.settingsVerticalPillarboxWidth) private var verticalPillarboxPercent: Double = 0 // 0...50 (% of total width)
@@ -1161,17 +1161,9 @@ private struct PageColumn: View {
                 let url = urls[i]
                 CGImageLoader(url: url, maxPixelProvider: { CGFloat(downsampleMaxPixel(viewportMax)) }, content: { cg in
                     if let cg {
-                        let imageW = CGFloat(cg.width)
-                        let imageH = CGFloat(cg.height)
-                        let aspect = imageW / max(imageH, 1)
-                        // Use Pager-like interpolation logic based on fitted width
-                        let targetPixelsW = viewportMax * displayScale
-                        let targetPixelsH = (viewportMax / max(aspect, 0.0001)) * displayScale
-                        let isUpscalingAt1x = (targetPixelsW > imageW) || (targetPixelsH > imageH)
-
                         Image(decorative: cg, scale: 1, orientation: .up)
                             .resizable()
-                            .interpolation(isUpscalingAt1x ? .none : .high)
+                            .interpolation(.high)
                             .scaledToFit()
                             .frame(maxWidth: .infinity, alignment: .center)
                     } else {
