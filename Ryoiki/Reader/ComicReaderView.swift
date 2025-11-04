@@ -31,6 +31,7 @@ struct ComicReaderView: View {
     @State private var loadedIndices: Set<Int> = []
     @State private var preheatTask: Task<Void, Never>?
     @State private var viewportMax: CGFloat = 0
+    @State private var progress = ReadingProgress()
 
     // New state for reading mode and page-based data
     @AppStorage(.settingsReaderMode) private var readerModeRaw: String = ReadingMode.pager.rawValue
@@ -160,6 +161,8 @@ struct ComicReaderView: View {
         return pageToFirstFlatIndex[page]
     }
 
+    private var progressStore: ReadingProgressStore { ReadingProgressStore(comicName: comic.name, comicURL: comic.url) }
+
     private var pagerView: some View {
         VStack(spacing: 0) {
             PagerReaderMode(
@@ -170,7 +173,8 @@ struct ComicReaderView: View {
                 downsampleMaxPixel: { viewport in computeDownsampleMaxPixel(for: viewport) },
                 urlForIndex: { idx in urlForFlatIndex(idx) },
                 onPrevious: { previousPage() },
-                onNext: { nextPage() }
+                onNext: { nextPage() },
+                progress: progress
             )
             .onPreferenceChange(ViewportMaxPreferenceKey.self) { viewportMax = $0 }
 
@@ -209,7 +213,8 @@ struct ComicReaderView: View {
             externalVisiblePageIndex: $verticalVisiblePageIndex,
             onVisiblePageChanged: { idx in
                 verticalVisiblePageIndex = idx
-            }
+            },
+            progress: progress
         )
     }
 
@@ -320,7 +325,8 @@ struct ComicReaderView: View {
                 running += urls.count
                 flat.append(contentsOf: urls)
             }
-            let restoredPage: Int = await MainActor.run { loadPersistedPageSelection(totalPages: titles.count) }
+            let restored = progressStore.load(totalPages: titles.count, totalImages: flat.count, pageToFirstFlatIndex: firstIndex)
+            let restoredPage = restored.page
 
             await MainActor.run {
                 self.pages = sortedPages
@@ -328,6 +334,9 @@ struct ComicReaderView: View {
                 self.pageTitles = titles
                 self.pageToFirstFlatIndex = firstIndex
                 self.flatURLs = flat
+            }
+            await MainActor.run {
+                progress.configureTotals(pages: titles.count, images: flat.count)
             }
 
             let restoredImageIndex = min(max(0, (restoredPage < firstIndex.count ? firstIndex[restoredPage] : 0)), max(flat.count - 1, 0))
@@ -343,6 +352,8 @@ struct ComicReaderView: View {
                     self.previousSelection = restoredImageIndex
                     self.selection = restoredImageIndex
                     self.verticalVisiblePageIndex = min(max(0, restoredPage), max(titles.count - 1, 0))
+                    progress.updatePage(restoredPage)
+                    progress.updateImageIndex(restoredImageIndex)
                 }
             }
         }
@@ -351,18 +362,18 @@ struct ComicReaderView: View {
             preheatTask = Task {
                 await ensureLoadedWindow(around: newValue, radius: effectivePreloadRadius)
                 await MainActor.run {
-                    savePersistedSelection(newValue)
                     if readerMode == .pager {
-                        savePersistedPage(currentPageIndex)
                     }
                     // Keep vertical state in sync with pager selection
                     verticalVisiblePageIndex = currentPageIndex
+                    progress.updateImageIndex(newValue)
+                    progressStore.save(progress: progress)
                 }
             }
         }
         .onChange(of: verticalVisiblePageIndex) { _, newValue in
             Task { @MainActor in
-                savePersistedPage(newValue)
+                // Removed savePersistedPage(newValue)
                 // Warm images around the first image index of the visible page
                 if newValue >= 0, newValue < pageToFirstFlatIndex.count {
                     let centerIndex = pageToFirstFlatIndex[newValue]
@@ -374,6 +385,8 @@ struct ComicReaderView: View {
                     previousSelection = selection
                     selection = min(max(0, imgIndex), max(flatURLs.count - 1, 0))
                 }
+                progress.updatePage(newValue)
+                progressStore.save(progress: progress)
             }
         }
         .onChange(of: effectiveModeRaw) { oldRaw, newRaw in
@@ -391,7 +404,6 @@ struct ComicReaderView: View {
             }()
 
             Task { @MainActor in
-                savePersistedPage(sourcePage)
                 if newMode == .pager {
                     // Jump pager selection to the first image of the source page
                     let imgIndex = firstImageIndex(forPage: sourcePage)
@@ -401,12 +413,16 @@ struct ComicReaderView: View {
                         pageDirection = .forward
                     }
                     await ensureLoadedWindow(around: selection, radius: effectivePreloadRadius)
-                    savePersistedSelection(selection)
+                    progress.updateImageIndex(selection)
+                    progress.updatePage(sourcePage)
+                    progressStore.save(progress: progress)
                     // Keep vertical page in sync as well
                     verticalVisiblePageIndex = min(max(0, sourcePage), max(pageTitles.count - 1, 0))
                 } else {
                     // Vertical mode: show the same page and warm around it
                     verticalVisiblePageIndex = min(max(0, sourcePage), max(pageTitles.count - 1, 0))
+                    progress.updatePage(sourcePage)
+                    progressStore.save(progress: progress)
                     if sourcePage >= 0, sourcePage < pageToFirstFlatIndex.count {
                         let centerIndex = pageToFirstFlatIndex[sourcePage]
                         await ensureLoadedWindow(around: centerIndex, radius: effectivePreloadRadius)
@@ -431,50 +447,9 @@ struct ComicReaderView: View {
         .onDisappear {
             preheatTask?.cancel()
             Task { @MainActor in
-                savePersistedSelection(selection)
-                savePersistedPage(currentPageIndex)
+                progressStore.save(progress: progress)
             }
         }
-    }
-
-    // MARK: - Persistence (current page)
-
-    private var persistedSelectionKey: String {
-        "reader.selection.\(comic.name)|\(comic.url)"
-    }
-
-    private var persistedPageKey: String {
-        "reader.page.\(comic.name)|\(comic.url)"
-    }
-
-    @MainActor
-    private func loadPersistedSelection(totalCount: Int) -> Int {
-        let raw = UserDefaults.standard.object(forKey: persistedSelectionKey) as? Int
-        guard let raw, totalCount > 0 else { return 0 }
-        return min(max(0, raw), totalCount - 1)
-    }
-
-    @MainActor
-    private func savePersistedSelection(_ index: Int) {
-        UserDefaults.standard.set(index, forKey: persistedSelectionKey)
-    }
-
-    @MainActor
-    private func loadPersistedPageSelection(totalPages: Int) -> Int {
-        if let raw = UserDefaults.standard.object(forKey: persistedPageKey) as? Int, totalPages > 0 {
-            return min(max(0, raw), totalPages - 1)
-        }
-        // Back-compat: if old image index exists, map to page
-        if let old = UserDefaults.standard.object(forKey: persistedSelectionKey) as? Int, totalPages > 0, !pageToFirstFlatIndex.isEmpty {
-            let pageIdx = pageToFirstFlatIndex.lastIndex(where: { old >= $0 }) ?? 0
-            return min(max(0, pageIdx), totalPages - 1)
-        }
-        return 0
-    }
-
-    @MainActor
-    private func savePersistedPage(_ pageIndex: Int) {
-        UserDefaults.standard.set(pageIndex, forKey: persistedPageKey)
     }
 
     // MARK: - Window Loading

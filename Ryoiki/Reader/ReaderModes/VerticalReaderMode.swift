@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import Observation
 
 internal struct VisiblePagePreferenceKey: PreferenceKey {
     typealias Value = [Int]
@@ -29,6 +30,8 @@ struct VerticalReaderMode: View {
     @Binding var externalVisiblePageIndex: Int
     var onVisiblePageChanged: (Int) -> Void
 
+    var progress: ReadingProgress?
+
     init(
         pages: [ComicPage],
         pageImageURLs: [[URL]],
@@ -39,7 +42,8 @@ struct VerticalReaderMode: View {
         pillarboxEnabled: Binding<Bool>,
         pillarboxPercent: Binding<Double>,
         externalVisiblePageIndex: Binding<Int>,
-        onVisiblePageChanged: @escaping (Int) -> Void
+        onVisiblePageChanged: @escaping (Int) -> Void,
+        progress: ReadingProgress? = nil
     ) {
         self.pages = pages
         self.pageImageURLs = pageImageURLs
@@ -51,6 +55,7 @@ struct VerticalReaderMode: View {
         self._pillarboxPercent = pillarboxPercent
         self._externalVisiblePageIndex = externalVisiblePageIndex
         self.onVisiblePageChanged = onVisiblePageChanged
+        self.progress = progress
     }
 
     var body: some View {
@@ -64,7 +69,8 @@ struct VerticalReaderMode: View {
             pillarboxEnabled: $pillarboxEnabled,
             pillarboxPercent: $pillarboxPercent,
             externalVisiblePageIndex: $externalVisiblePageIndex,
-            onVisiblePageChanged: onVisiblePageChanged
+            onVisiblePageChanged: onVisiblePageChanged,
+            progress: progress
         )
     }
 }
@@ -80,6 +86,8 @@ struct InnerVerticalReader: View {
     @Binding var pillarboxPercent: Double
     @Binding var externalVisiblePageIndex: Int
     var onVisiblePageChanged: (Int) -> Void
+
+    var progress: ReadingProgress?
 
     @State private var visiblePageIndices: [Int] = []
     @State private var throttledTask: Task<Void, Never>?
@@ -142,6 +150,7 @@ struct InnerVerticalReader: View {
         .coordinateSpace(name: "scroll")
         .onPreferenceChange(VisiblePagePreferenceKey.self) { newValue in
             visiblePageIndices = newValue
+            progress?.updatePage(newValue.first ?? 0)
             throttleVisiblePageChange()
         }
         .onPreferenceChange(VerticalViewportMaxPreferenceKey.self) { newValue in
@@ -149,6 +158,7 @@ struct InnerVerticalReader: View {
         }
         .onChange(of: externalVisiblePageIndex) { _, newValue in
             guard !visiblePageIndices.contains(newValue) else { return }
+            progress?.updatePage(newValue)
             // External visible page index changed, perform any action if needed
         }
     }

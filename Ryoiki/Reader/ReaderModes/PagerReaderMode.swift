@@ -1,5 +1,4 @@
 import SwiftUI
-import ImageIO
 
 public enum PageDirection: Int {
     case forward, backward
@@ -19,6 +18,7 @@ public struct PagerReaderMode: View {
     public var onPrevious: () -> Void
     public var onNext: () -> Void
     public var delegate: PagerReaderModeDelegate?
+    public var progress: ReadingProgress?
 
     public init(
         count: Int,
@@ -29,7 +29,8 @@ public struct PagerReaderMode: View {
         urlForIndex: @escaping (Int) -> URL?,
         onPrevious: @escaping () -> Void,
         onNext: @escaping () -> Void,
-        delegate: PagerReaderModeDelegate? = nil
+        delegate: PagerReaderModeDelegate? = nil,
+        progress: ReadingProgress? = nil
     ) {
         self.count = count
         self._selection = selection
@@ -40,6 +41,7 @@ public struct PagerReaderMode: View {
         self.onPrevious = onPrevious
         self.onNext = onNext
         self.delegate = delegate
+        self.progress = progress
     }
 
     public var body: some View {
@@ -52,7 +54,8 @@ public struct PagerReaderMode: View {
             urlForIndex: urlForIndex,
             onPrevious: onPrevious,
             onNext: onNext,
-            delegate: delegate
+            delegate: delegate,
+            progress: progress
         )
     }
 }
@@ -67,6 +70,7 @@ struct InnerReaderPager: View {
     var onPrevious: () -> Void
     var onNext: () -> Void
     var delegate: PagerReaderModeDelegate?
+    var progress: ReadingProgress?
 
     @State private var zoomScale: CGFloat = 1
     @State private var isZoomed: Bool = false
@@ -220,6 +224,7 @@ struct InnerReaderPager: View {
             .onAppear {
                 activeDirection = navDirection
                 displayedIndex = selection
+                progress?.updateImageIndex(selection)
                 slideProgress = 1
                 phase = 0
             }
@@ -248,6 +253,7 @@ struct InnerReaderPager: View {
                     if Task.isCancelled { return }
 
                     displayedIndex = newValue
+                    progress?.updateImageIndex(newValue)
                     isZoomed = false
 
                     phase = 2
