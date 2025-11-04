@@ -12,13 +12,6 @@ public enum ReadingMode: String, CaseIterable, Codable, Sendable {
     }
 }
 
-private struct ViewportMaxPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 struct ComicReaderView: View {
     let comic: Comic
 
@@ -29,7 +22,6 @@ struct ComicReaderView: View {
     @State private var isReady: Bool = false
     @State private var flatURLs: [URL] = []
     @State private var loadedIndices: Set<Int> = []
-    @State private var preheatTask: Task<Void, Never>?
     @State private var viewportMax: CGFloat = 0
     @State private var progress = ReadingProgress()
 
@@ -90,7 +82,7 @@ struct ComicReaderView: View {
     @AppStorage(.settingsReaderDownsampleMaxPixel) private var readerDownsampleMaxPixel: Double = 10240
     @AppStorage(.settingsReaderPreloadRadius) private var readerPreloadRadius: Int = 5
     @AppStorage(.settingsVerticalPillarboxEnabled) private var verticalPillarboxEnabled: Bool = false
-    @AppStorage(.settingsVerticalPillarboxWidth) private var verticalPillarboxPercent: Double = 0 // 0...50 (% of total width)
+    @AppStorage(.settingsVerticalPillarboxWidth) private var verticalPillarboxWidth: Double = 0 // points per side
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
@@ -176,7 +168,6 @@ struct ComicReaderView: View {
                 onNext: { nextPage() },
                 progress: progress
             )
-            .onPreferenceChange(ViewportMaxPreferenceKey.self) { viewportMax = $0 }
 
             VStack(spacing: 6) {
                 HStack {
@@ -209,7 +200,7 @@ struct ComicReaderView: View {
             displayScale: displayScale,
             downsampleMaxPixel: downsample,
             pillarboxEnabled: $verticalPillarboxEnabled,
-            pillarboxPercent: $verticalPillarboxPercent,
+            pillarboxWidth: $verticalPillarboxWidth,
             externalVisiblePageIndex: $verticalVisiblePageIndex,
             onVisiblePageChanged: { idx in
                 verticalVisiblePageIndex = idx
@@ -290,9 +281,9 @@ struct ComicReaderView: View {
                         HStack(spacing: 8) {
                             Toggle("Pillarbox", isOn: $verticalPillarboxEnabled)
                                 .labelsHidden()
-                            Slider(value: $verticalPillarboxPercent, in: 0...50, step: 1)
-                                .frame(width: 140)
-                            Text("\(Int(verticalPillarboxPercent))%")
+                            Slider(value: $verticalPillarboxWidth, in: 0...120, step: 1)
+                                .frame(width: 160)
+                            Text("\(Int(verticalPillarboxWidth)) pt")
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
                         }
@@ -357,29 +348,23 @@ struct ComicReaderView: View {
                 }
             }
         }
-        .onChange(of: selection) { _, newValue in
-            preheatTask?.cancel()
-            preheatTask = Task {
-                await ensureLoadedWindow(around: newValue, radius: effectivePreloadRadius)
-                await MainActor.run {
-                    if readerMode == .pager {
-                    }
-                    // Keep vertical state in sync with pager selection
-                    verticalVisiblePageIndex = currentPageIndex
-                    progress.updateImageIndex(newValue)
-                    progressStore.save(progress: progress)
-                }
+        .task(id: selection) {
+            let newValue = selection
+            await ensureLoadedWindow(around: newValue, radius: effectivePreloadRadius)
+            await MainActor.run {
+                if readerMode == .pager { }
+                verticalVisiblePageIndex = currentPageIndex
+                progress.updateImageIndex(newValue)
+                progressStore.save(progress: progress)
             }
         }
-        .onChange(of: verticalVisiblePageIndex) { _, newValue in
-            Task { @MainActor in
-                // Removed savePersistedPage(newValue)
-                // Warm images around the first image index of the visible page
-                if newValue >= 0, newValue < pageToFirstFlatIndex.count {
-                    let centerIndex = pageToFirstFlatIndex[newValue]
-                    await ensureLoadedWindow(around: centerIndex, radius: effectivePreloadRadius)
-                }
-                // Keep pager selection in sync with vertical page (no UI impact while in vertical)
+        .task(id: verticalVisiblePageIndex) {
+            let newValue = verticalVisiblePageIndex
+            if newValue >= 0, newValue < pageToFirstFlatIndex.count {
+                let centerIndex = pageToFirstFlatIndex[newValue]
+                await ensureLoadedWindow(around: centerIndex, radius: effectivePreloadRadius)
+            }
+            await MainActor.run {
                 if newValue >= 0, newValue < pageToFirstFlatIndex.count {
                     let imgIndex = pageToFirstFlatIndex[newValue]
                     previousSelection = selection
@@ -445,7 +430,6 @@ struct ComicReaderView: View {
             return .ignored
         }
         .onDisappear {
-            preheatTask?.cancel()
             Task { @MainActor in
                 progressStore.save(progress: progress)
             }

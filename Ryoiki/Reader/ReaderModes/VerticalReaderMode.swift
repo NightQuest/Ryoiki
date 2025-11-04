@@ -26,7 +26,7 @@ struct VerticalReaderMode: View {
     var displayScale: CGFloat
     var downsampleMaxPixel: (CGFloat) -> Int
     @Binding var pillarboxEnabled: Bool
-    @Binding var pillarboxPercent: Double
+    @Binding var pillarboxWidth: Double
     @Binding var externalVisiblePageIndex: Int
     var onVisiblePageChanged: (Int) -> Void
 
@@ -40,7 +40,7 @@ struct VerticalReaderMode: View {
         displayScale: CGFloat,
         downsampleMaxPixel: @escaping (CGFloat) -> Int,
         pillarboxEnabled: Binding<Bool>,
-        pillarboxPercent: Binding<Double>,
+        pillarboxWidth: Binding<Double>,
         externalVisiblePageIndex: Binding<Int>,
         onVisiblePageChanged: @escaping (Int) -> Void,
         progress: ReadingProgress? = nil
@@ -52,7 +52,7 @@ struct VerticalReaderMode: View {
         self.displayScale = displayScale
         self.downsampleMaxPixel = downsampleMaxPixel
         self._pillarboxEnabled = pillarboxEnabled
-        self._pillarboxPercent = pillarboxPercent
+        self._pillarboxWidth = pillarboxWidth
         self._externalVisiblePageIndex = externalVisiblePageIndex
         self.onVisiblePageChanged = onVisiblePageChanged
         self.progress = progress
@@ -67,7 +67,7 @@ struct VerticalReaderMode: View {
             displayScale: displayScale,
             downsampleMaxPixel: downsampleMaxPixel,
             pillarboxEnabled: $pillarboxEnabled,
-            pillarboxPercent: $pillarboxPercent,
+            pillarboxWidth: $pillarboxWidth,
             externalVisiblePageIndex: $externalVisiblePageIndex,
             onVisiblePageChanged: onVisiblePageChanged,
             progress: progress
@@ -83,7 +83,7 @@ struct InnerVerticalReader: View {
     var displayScale: CGFloat
     var downsampleMaxPixel: (CGFloat) -> Int
     @Binding var pillarboxEnabled: Bool
-    @Binding var pillarboxPercent: Double
+    @Binding var pillarboxWidth: Double
     @Binding var externalVisiblePageIndex: Int
     var onVisiblePageChanged: (Int) -> Void
 
@@ -96,8 +96,7 @@ struct InnerVerticalReader: View {
     @State private var containerHeight: CGFloat = 0
 
     private var perSidePadding: CGFloat {
-        let clampedPercent = min(max(pillarboxPercent, 0), 50)
-        return pillarboxEnabled ? (containerWidth * (clampedPercent / 100) / 2) : 0
+        pillarboxEnabled ? CGFloat(pillarboxWidth) : 0
     }
 
     var body: some View {
@@ -118,7 +117,7 @@ struct InnerVerticalReader: View {
                         displayScale: displayScale,
                         downsampleMaxPixel: downsampleMaxPixel,
                         pillarboxEnabled: $pillarboxEnabled,
-                        pillarboxPercent: $pillarboxPercent,
+                        pillarboxWidth: $pillarboxWidth,
                         viewportMax: viewportMax
                     )
                     .background(GeometryReader { proxy in
@@ -190,7 +189,7 @@ private struct PageColumn: View {
     var displayScale: CGFloat
     var downsampleMaxPixel: (CGFloat) -> Int
     @Binding var pillarboxEnabled: Bool
-    @Binding var pillarboxPercent: Double
+    @Binding var pillarboxWidth: Double
     var viewportMax: CGFloat
 
     var body: some View {
