@@ -8,7 +8,7 @@ public protocol PagerReaderModeDelegate: AnyObject {
     func pagerReaderModeWillNavigate(_ direction: PageDirection)
 }
 
-public struct PagerReaderMode: View {
+public struct ReaderPagerMode: View {
     public var count: Int
     @Binding public var selection: Int
     public var previousSelection: Int
@@ -17,6 +17,7 @@ public struct PagerReaderMode: View {
     public var urlForIndex: (Int) -> URL?
     public var onPrevious: () -> Void
     public var onNext: () -> Void
+    @Binding public var slider: Double
     public var delegate: PagerReaderModeDelegate?
     public var progress: ReadingProgress?
 
@@ -29,6 +30,7 @@ public struct PagerReaderMode: View {
         urlForIndex: @escaping (Int) -> URL?,
         onPrevious: @escaping () -> Void,
         onNext: @escaping () -> Void,
+        slider: Binding<Double>,
         delegate: PagerReaderModeDelegate? = nil,
         progress: ReadingProgress? = nil
     ) {
@@ -40,23 +42,44 @@ public struct PagerReaderMode: View {
         self.urlForIndex = urlForIndex
         self.onPrevious = onPrevious
         self.onNext = onNext
+        self._slider = slider
         self.delegate = delegate
         self.progress = progress
     }
 
     public var body: some View {
-        InnerReaderPager(
-            count: count,
-            selection: $selection,
-            previousSelection: previousSelection,
-            navDirection: $navDirection,
-            downsampleMaxPixel: downsampleMaxPixel,
-            urlForIndex: urlForIndex,
-            onPrevious: onPrevious,
-            onNext: onNext,
-            delegate: delegate,
-            progress: progress
-        )
+        VStack(spacing: 0) {
+            InnerReaderPager(
+                count: count,
+                selection: $selection,
+                previousSelection: previousSelection,
+                navDirection: $navDirection,
+                downsampleMaxPixel: downsampleMaxPixel,
+                urlForIndex: urlForIndex,
+                onPrevious: onPrevious,
+                onNext: onNext,
+                delegate: delegate,
+                progress: progress
+            )
+
+            VStack(spacing: 6) {
+                HStack {
+                    Text("Page")
+                    Spacer()
+                    Text("\(selection + 1) / \(count)")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Slider(
+                    value: $slider,
+                    in: 0...Double(max(count - 1, 0)),
+                    step: 1
+                )
+            }
+            .font(.subheadline)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
     }
 }
 

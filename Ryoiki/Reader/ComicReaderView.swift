@@ -1,17 +1,5 @@
 import SwiftUI
 
-public enum ReadingMode: String, CaseIterable, Codable, Sendable {
-    case pager
-    case vertical
-
-    var label: String {
-        switch self {
-        case .pager: return "Pager"
-        case .vertical: return "Vertical"
-        }
-    }
-}
-
 struct ComicReaderView: View {
     let comic: Comic
 
@@ -156,55 +144,32 @@ struct ComicReaderView: View {
     private var progressStore: ReadingProgressStore { ReadingProgressStore(comicName: comic.name, comicURL: comic.url) }
 
     private var pagerView: some View {
-        VStack(spacing: 0) {
-            PagerReaderMode(
-                count: flatURLs.count,
-                selection: $selection,
-                previousSelection: previousSelection,
-                navDirection: $pageDirection,
-                downsampleMaxPixel: { viewport in computeDownsampleMaxPixel(for: viewport) },
-                urlForIndex: { idx in urlForFlatIndex(idx) },
-                onPrevious: { previousPage() },
-                onNext: { nextPage() },
-                progress: progress
-            )
-
-            VStack(spacing: 6) {
-                HStack {
-                    Text("Page")
-                    Spacer()
-                    Text("\(selection + 1) / \(flatURLs.count)")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                Slider(
-                    value: pageSliderBinding,
-                    in: 0...Double(max(flatURLs.count - 1, 0)),
-                    step: 1
-                )
-            }
-            .font(.subheadline)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-        }
+        ReaderPagerMode(
+            count: flatURLs.count,
+            selection: $selection,
+            previousSelection: previousSelection,
+            navDirection: $pageDirection,
+            downsampleMaxPixel: { viewport in computeDownsampleMaxPixel(for: viewport) },
+            urlForIndex: { idx in urlForFlatIndex(idx) },
+            onPrevious: { previousPage() },
+            onNext: { nextPage() },
+            slider: pageSliderBinding,
+            progress: progress
+        )
     }
 
     private var verticalReaderView: some View {
-        // Bindings and closures as locals to help the type-checker
-        let downsample: (CGFloat) -> Int = { viewport in computeDownsampleMaxPixel(for: viewport) }
-        return VerticalReaderMode(
+        ReaderVerticalMode(
             pages: pages,
             pageImageURLs: pageImageURLs,
             loadedIndices: $loadedIndices,
             viewportMax: $viewportMax,
             displayScale: displayScale,
-            downsampleMaxPixel: downsample,
+            downsampleMaxPixel: { viewport in computeDownsampleMaxPixel(for: viewport) },
             pillarboxEnabled: $verticalPillarboxEnabled,
             pillarboxWidth: $verticalPillarboxWidth,
             externalVisiblePageIndex: $verticalVisiblePageIndex,
-            onVisiblePageChanged: { idx in
-                verticalVisiblePageIndex = idx
-            },
+            onVisiblePageChanged: { idx in verticalVisiblePageIndex = idx },
             progress: progress
         )
     }

@@ -18,7 +18,7 @@ internal struct VerticalViewportMaxPreferenceKey: PreferenceKey {
     }
 }
 
-struct VerticalReaderMode: View {
+struct ReaderVerticalMode: View {
     var pages: [ComicPage]
     var pageImageURLs: [[URL]]
     @Binding var loadedIndices: Set<Int>
