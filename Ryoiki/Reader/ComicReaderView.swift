@@ -69,6 +69,7 @@ struct ComicReaderView: View {
                             navDirection: $pageDirection,
                             downsampleMaxPixel: { viewport in computeDownsampleMaxPixel(for: viewport) },
                             urlForIndex: { idx in urlForFlatIndex(idx) },
+                            pageIndexForImage: { idx in pageIndexForImageSelection(idx) },
                             onPrevious: { previousPage() },
                             onNext: { nextPage() },
                             slider: pageSliderBinding,
@@ -86,7 +87,9 @@ struct ComicReaderView: View {
                             pillarboxWidth: $verticalPillarboxWidth,
                             externalVisiblePageIndex: $verticalVisiblePageIndex,
                             onVisiblePageChanged: { idx in verticalVisiblePageIndex = idx },
-                            progress: progress
+                            progress: progress,
+                            pageToFirstFlatIndex: pageToFirstFlatIndex,
+                            externalVisibleImageIndex: progress.currentImageIndex
                         )
                     }
                 }

@@ -75,11 +75,6 @@ extension ComicReaderView {
             await ensureLoadedWindow(around: centerIndex, radius: effectivePreloadRadius)
         }
         await MainActor.run {
-            if newValue >= 0, newValue < pageToFirstFlatIndex.count {
-                let imgIndex = pageToFirstFlatIndex[newValue]
-                previousSelection = selection
-                selection = min(max(0, imgIndex), max(flatURLs.count - 1, 0))
-            }
             progress.updatePage(newValue)
             progressStore.save(progress: progress)
         }
@@ -101,11 +96,17 @@ extension ComicReaderView {
 
         Task { @MainActor in
             if newMode.rawValue == ReadingMode.pager.rawValue {
-                // Jump pager selection to the first image of the source page
-                let imgIndex = firstImageIndex(forPage: sourcePage)
+                // Pager mode: prefer the persisted image index when it belongs to the source page; otherwise jump to first image of that page
+                let start = firstImageIndex(forPage: sourcePage)
+                let endExclusive = (sourcePage + 1 < pageToFirstFlatIndex.count) ? pageToFirstFlatIndex[sourcePage + 1] : flatURLs.count
+                let clampedStart = min(max(0, start), max(flatURLs.count - 1, 0))
+                let clampedEndExclusive = max(clampedStart + 1, min(endExclusive, flatURLs.count))
+                let persistedImg = progress.currentImageIndex
+                let isPersistedInPage = (persistedImg >= clampedStart && persistedImg < clampedEndExclusive)
+                let targetIndex = isPersistedInPage ? persistedImg : clampedStart
                 withAnimation(.none) {
                     previousSelection = selection
-                    selection = min(max(0, imgIndex), max(flatURLs.count - 1, 0))
+                    selection = targetIndex
                     pageDirection = .forward
                 }
                 await ensureLoadedWindow(around: selection, radius: effectivePreloadRadius)

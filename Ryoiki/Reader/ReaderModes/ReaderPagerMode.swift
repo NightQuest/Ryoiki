@@ -15,6 +15,7 @@ public struct ReaderPagerMode: View {
     @Binding public var navDirection: PageDirection
     public var downsampleMaxPixel: (CGFloat) -> Int
     public var urlForIndex: (Int) -> URL?
+    public var pageIndexForImage: (Int) -> Int
     public var onPrevious: () -> Void
     public var onNext: () -> Void
     @Binding public var slider: Double
@@ -28,6 +29,7 @@ public struct ReaderPagerMode: View {
         navDirection: Binding<PageDirection>,
         downsampleMaxPixel: @escaping (CGFloat) -> Int,
         urlForIndex: @escaping (Int) -> URL?,
+        pageIndexForImage: @escaping (Int) -> Int,
         onPrevious: @escaping () -> Void,
         onNext: @escaping () -> Void,
         slider: Binding<Double>,
@@ -40,6 +42,7 @@ public struct ReaderPagerMode: View {
         self._navDirection = navDirection
         self.downsampleMaxPixel = downsampleMaxPixel
         self.urlForIndex = urlForIndex
+        self.pageIndexForImage = pageIndexForImage
         self.onPrevious = onPrevious
         self.onNext = onNext
         self._slider = slider
@@ -56,6 +59,7 @@ public struct ReaderPagerMode: View {
                 navDirection: $navDirection,
                 downsampleMaxPixel: downsampleMaxPixel,
                 urlForIndex: urlForIndex,
+                pageIndexForImage: pageIndexForImage,
                 onPrevious: onPrevious,
                 onNext: onNext,
                 delegate: delegate,
@@ -90,6 +94,7 @@ struct InnerReaderPager: View {
     @Binding var navDirection: PageDirection
     var downsampleMaxPixel: (CGFloat) -> Int
     var urlForIndex: (Int) -> URL?
+    var pageIndexForImage: (Int) -> Int
     var onPrevious: () -> Void
     var onNext: () -> Void
     var delegate: PagerReaderModeDelegate?
@@ -248,6 +253,7 @@ struct InnerReaderPager: View {
                 activeDirection = navDirection
                 displayedIndex = selection
                 progress?.updateImageIndex(selection)
+                if let progress { progress.updatePage(pageIndexForImage(selection)) }
                 slideProgress = 1
                 phase = 0
             }
@@ -277,6 +283,7 @@ struct InnerReaderPager: View {
 
                     displayedIndex = newValue
                     progress?.updateImageIndex(newValue)
+                    if let progress { progress.updatePage(pageIndexForImage(newValue)) }
                     isZoomed = false
 
                     phase = 2
