@@ -15,7 +15,7 @@ struct ReaderPillarboxControls: View {
         HStack(spacing: 8) {
             Toggle("Pillarbox", isOn: $enabled)
                 .labelsHidden()
-            Slider(value: $width, in: 0...120, step: 1)
+            Slider(value: $width, in: 0...240, step: 5)
                 .frame(width: 160)
             Text("\(Int(width)) pt")
                 .monospacedDigit()

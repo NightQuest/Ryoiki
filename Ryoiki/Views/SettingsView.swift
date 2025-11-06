@@ -56,7 +56,7 @@ struct GeneralSettingsView: View {
                 Toggle("Vertical mode pillarbox", isOn: $verticalPillarboxEnabled)
                 HStack {
                     Text("Pillarbox width")
-                    Slider(value: $verticalPillarboxWidth, in: 0...120, step: 1)
+                    Slider(value: $verticalPillarboxWidth, in: 0...240, step: 5)
                         .frame(maxWidth: 200)
                     Text("\(Int(verticalPillarboxWidth)) pt")
                         .monospacedDigit()
