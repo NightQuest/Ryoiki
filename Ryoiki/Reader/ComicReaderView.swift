@@ -45,14 +45,8 @@ struct ComicReaderView: View {
                 ProgressView()
                     .controlSize(.large)
                     .padding()
-            } else if readerMode == .pager && flatURLs.isEmpty {
-                ContentUnavailableView(
-                    "No pages to read",
-                    systemImage: "book.closed",
-                    description: Text("This comic has no downloaded images.")
-                )
-                .padding()
-            } else if readerMode == .vertical && pages.isEmpty {
+            } else if (readerMode == .pager && flatURLs.isEmpty) ||
+                        (readerMode == .vertical && pageTitles.isEmpty) {
                 ContentUnavailableView(
                     "No pages to read",
                     systemImage: "book.closed",
@@ -106,12 +100,14 @@ struct ComicReaderView: View {
                             .accessibilityLabel("Toggle reading mode")
                             .accessibilityHint("Switches between Pager and Vertical modes")
 
-                        ReaderPillarboxControls(
-                            enabled: $verticalPillarboxEnabled,
-                            width: $verticalPillarboxWidth
-                        )
-                        .padding(.top, 8)
-                        .padding(.trailing, 8)
+                        if readerMode == .vertical {
+                            ReaderPillarboxControls(
+                                enabled: $verticalPillarboxEnabled,
+                                width: $verticalPillarboxWidth
+                            )
+                            .padding(.top, 8)
+                            .padding(.trailing, 8)
+                        }
                     }
                 }
             }
