@@ -77,74 +77,93 @@ struct LibraryView: View {
         }
     }
 
+    private var selectedComicBusy: Bool {
+        if let c = externalSelectedComic {
+            return isFetching(comic: c) || isUpdating(comic: c)
+        }
+        return false
+    }
+
+    @ViewBuilder
+    private func addButton() -> some View {
+        Button {
+            isAddingComic = true
+        } label: {
+            Label("Add Web Comic", systemImage: "plus.app")
+        }
+        .buttonStyle(.borderedProminent)
+    }
+
+    @ViewBuilder
+    private func actionButtons() -> some View {
+        Button {
+            prepareExportProfile()
+        } label: {
+            Label("Export Profile", systemImage: "square.and.arrow.up")
+        }
+        .disabled(externalSelectedComic == nil || selectedComicBusy)
+        .buttonStyle(.bordered)
+
+        Button {
+            isImporting = true
+        } label: {
+            Label("Import Profile", systemImage: "square.and.arrow.down.on.square")
+        }
+        .buttonStyle(.bordered)
+
+        Button {
+            isDisplayingComicDetails = true
+        } label: {
+            Label("Details", systemImage: "info.circle")
+        }
+        .disabled(externalSelectedComic == nil)
+        .buttonStyle(.bordered)
+    }
+
+    @ViewBuilder
+    private func itemsPerRowSlider(width: CGFloat, smallControl: Bool = true) -> some View {
+        Slider(value: Binding<Double>(
+            get: { Double(itemsPerRowPreference) },
+            set: { itemsPerRowPreference = Int($0.rounded()) }
+        ), in: 2...10, step: 1)
+        .labelsHidden()
+        .controlSize(smallControl ? .small : .regular)
+        .frame(width: width)
+        .help("Adjust items per row")
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup {
-            let isSelectedComicBusy: Bool = {
-                if let c = externalSelectedComic {
-                    return isFetching(comic: c) || isUpdating(comic: c)
-                }
-                return false
-            }()
+#if os(iOS)
+        ToolbarItemGroup(placement: .navigationBarLeading) {
+            addButton()
+        }
 
-            Button {
-                isAddingComic = true
-            } label: {
-                Label("Add Web Comic", systemImage: "plus.app")
-            }
-            .buttonStyle(.borderedProminent)
-
-            Button {
-                prepareExportProfile()
-            } label: {
-                Label("Export Profile", systemImage: "square.and.arrow.up")
-            }
-            .disabled(externalSelectedComic == nil || isSelectedComicBusy)
-            .buttonStyle(.bordered)
-
-            Button {
-                isImporting = true
-            } label: {
-                Label("Import Profile", systemImage: "square.and.arrow.down.on.square")
-            }
-            .buttonStyle(.bordered)
-
-            Button {
-                isDisplayingComicDetails = true
-            } label: {
-                Label("Details", systemImage: "info.circle")
-            }
-            .disabled(externalSelectedComic == nil)
-            .buttonStyle(.bordered)
-
-            Spacer()
-
+        ToolbarItemGroup(placement: .navigationBarTrailing) {
+            actionButtons()
             if horizontalSizeClass != .compact {
-                Slider(value: Binding<Double>(
-                    get: { Double(itemsPerRowPreference) },
-                    set: { itemsPerRowPreference = Int($0.rounded()) }
-                ), in: 2...10, step: 1)
-                .labelsHidden()
-                .controlSize(.small)
-                .frame(width: 120)
-                .help("Adjust items per row")
+                itemsPerRowSlider(width: 120)
             }
         }
 
-#if os(iOS)
         if horizontalSizeClass == .compact {
             ToolbarItem(placement: .bottomBar) {
                 HStack(spacing: 12) {
                     Image(systemName: "square.grid.2x2")
                         .foregroundStyle(.secondary)
-                    Slider(value: Binding<Double>(
-                        get: { Double(itemsPerRowPreference) },
-                        set: { itemsPerRowPreference = Int($0.rounded()) }
-                    ), in: 2...10, step: 1)
-                    .tint(.accentColor)
+                    itemsPerRowSlider(width: 140)
+                        .tint(.accentColor)
                 }
                 .accessibilityLabel(Text("Adjust items per row"))
             }
+        }
+#else
+        // macOS (and other platforms): original single group with Spacer, reusing shared items
+        ToolbarItemGroup {
+            addButton()
+            actionButtons()
+            Spacer()
+            itemsPerRowSlider(width: 120)
         }
 #endif
     }
