@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 import SwiftData
+import SwiftSoup
 
 private struct ValidationText: View {
     let message: String
@@ -19,24 +20,85 @@ struct ComicEditorView: View {
     let comicToEdit: Comic?
 
     // MARK: Internal State
-    @State private var vm: ComicEditorViewModel
     @Environment(\.dismiss) var dismiss
 
     @State private var showDiscardAlert: Bool = false
+
+    // Form Fields
+    @State private var comicName: String
+    @State private var comicAuthor: String
+    @State private var comicDescription: String
+    @State private var comicURL: String
+    @State private var comicCurrentURL: String
+
+    // Initial snapshot for change detection
+    private let initialName: String
+    private let initialAuthor: String
+    private let initialDescription: String
+    private let initialURL: String
+    private let initialFirstPageURL: String
+    private let initialSelectorImage: String
+    private let initialSelectorTitle: String
+    private let initialSelectorNext: String
+
+    // Validation state
+    @State private var isImageSelectorSyntaxValid: Bool = true
+    @State private var isTitleSelectorSyntaxValid: Bool = true
+    @State private var isNextSelectorSyntaxValid: Bool = true
+
+    // Debounced validation tasks
+    @State private var imageValidationTask: Task<Void, Never>?
+    @State private var titleValidationTask: Task<Void, Never>?
+    @State private var nextValidationTask: Task<Void, Never>?
+
+    @State private var comicSelectorImage: String
+    @State private var comicSelectorTitle: String
+    @State private var comicSelectorNextPage: String
 
     init(comicToEdit: Comic? = nil, onSubmit: ((ComicInput) -> Void)? = nil) {
         self.comicToEdit = comicToEdit
         self.onSubmit = onSubmit
         if let comic = comicToEdit {
-            _vm = State(initialValue: ComicEditorViewModel(comic: comic))
+            _comicName = State(initialValue: comic.name)
+            _comicAuthor = State(initialValue: comic.author)
+            _comicDescription = State(initialValue: comic.descriptionText)
+            _comicURL = State(initialValue: comic.url)
+            _comicCurrentURL = State(initialValue: comic.firstPageURL)
+            _comicSelectorImage = State(initialValue: comic.selectorImage)
+            _comicSelectorTitle = State(initialValue: comic.selectorTitle)
+            _comicSelectorNextPage = State(initialValue: comic.selectorNext)
+
+            self.initialName = comic.name
+            self.initialAuthor = comic.author
+            self.initialDescription = comic.descriptionText
+            self.initialURL = comic.url
+            self.initialFirstPageURL = comic.firstPageURL
+            self.initialSelectorImage = comic.selectorImage
+            self.initialSelectorTitle = comic.selectorTitle
+            self.initialSelectorNext = comic.selectorNext
         } else {
-            _vm = State(initialValue: ComicEditorViewModel())
+            _comicName = State(initialValue: "")
+            _comicAuthor = State(initialValue: "")
+            _comicDescription = State(initialValue: "")
+            _comicURL = State(initialValue: "")
+            _comicCurrentURL = State(initialValue: "")
+            _comicSelectorImage = State(initialValue: "")
+            _comicSelectorTitle = State(initialValue: "")
+            _comicSelectorNextPage = State(initialValue: "")
+
+            self.initialName = ""
+            self.initialAuthor = ""
+            self.initialDescription = ""
+            self.initialURL = ""
+            self.initialFirstPageURL = ""
+            self.initialSelectorImage = ""
+            self.initialSelectorTitle = ""
+            self.initialSelectorNext = ""
         }
     }
 
     // MARK: Body
     var body: some View {
-        @Bindable var vm = vm
 
         GeometryReader { proxy in
             let isTwoColumn = proxy.size.width >= 900
@@ -69,6 +131,9 @@ struct ComicEditorView: View {
                 .frame(maxWidth: 1200, alignment: .center)
                 .frame(maxWidth: .infinity)
             }
+            .onAppear {
+                initializeValidationStates()
+            }
         }
         .navigationTitle(comicToEdit == nil ? "Add Web Comic" : "Edit Web Comic")
         .toolbar {
@@ -86,13 +151,12 @@ struct ComicEditorView: View {
         )
     }
 
-
     // MARK: Toolbar Buttons
 
     @ViewBuilder
     private var cancelButton: some View {
         Button("Cancel") {
-            if vm.hasUnsavedChanges {
+            if hasUnsavedChanges {
                 showDiscardAlert = true
             } else {
                 dismiss()
@@ -103,12 +167,12 @@ struct ComicEditorView: View {
     @ViewBuilder
     private var addButton: some View {
         Button(comicToEdit == nil ? "Add" : "Save") {
-            if let input = vm.buildInput() {
+            if let input = buildInput() {
                 onSubmit?(input)
                 dismiss()
             }
         }
-        .disabled(!vm.isValid)
+        .disabled(!isValid)
     }
 
     // MARK: Alert
@@ -135,9 +199,9 @@ struct ComicEditorView: View {
                         Text("Name *")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        TextField("Name", text: $vm.comicName)
+                        TextField("Name", text: $comicName)
                             .textFieldStyle(.roundedBorder)
-                        if vm.isComicNameEmpty {
+                        if isComicNameEmpty {
                             ValidationText(message: "Name is required.")
                         }
                     }
@@ -146,7 +210,7 @@ struct ComicEditorView: View {
                         Text("Author(s)")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        TextField("Author(s)", text: $vm.comicAuthor)
+                        TextField("Author(s)", text: $comicAuthor)
                             .textFieldStyle(.roundedBorder)
                             .help("Separate multiple authors with a comma")
                     }
@@ -155,7 +219,7 @@ struct ComicEditorView: View {
                         Text("Description")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        TextEditor(text: $vm.comicDescription)
+                        TextEditor(text: $comicDescription)
                             .frame(minHeight: 140)
                             .padding(8)
                             .background(
@@ -179,9 +243,9 @@ struct ComicEditorView: View {
                         Text("Homepage")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        TextField("Homepage", text: $vm.comicURL)
+                        TextField("Homepage", text: $comicURL)
                             .textFieldStyle(.roundedBorder)
-                        if vm.isMainURLPresentAndInvalid {
+                        if isMainURLPresentAndInvalid {
                             ValidationText(message: "Enter a valid URL (http/https).")
                         }
                     }
@@ -190,11 +254,11 @@ struct ComicEditorView: View {
                         Text("First Page URL *")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        TextField("First Page URL", text: $vm.comicCurrentURL)
+                        TextField("First Page URL", text: $comicCurrentURL)
                             .textFieldStyle(.roundedBorder)
-                        if vm.isFirstPageURLEmpty {
+                        if isFirstPageURLEmpty {
                             ValidationText(message: "First Page URL is required.")
-                        } else if vm.isFirstPageURLInvalid {
+                        } else if isFirstPageURLInvalid {
                             ValidationText(message: "Enter a valid URL (http/https).")
                         }
                     }
@@ -216,11 +280,12 @@ struct ComicEditorView: View {
                         Text("Image selector *")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        TextField("Image selector", text: $vm.comicSelectorImage)
+                        TextField("Image selector", text: $comicSelectorImage)
                             .textFieldStyle(.roundedBorder)
-                        if vm.isImageSelectorEmpty {
+                            .onChange(of: comicSelectorImage) { _, _ in scheduleImageValidation() }
+                        if isImageSelectorEmpty {
                             ValidationText(message: "Image selector is required.")
-                        } else if !vm.isImageSelectorSyntaxValid {
+                        } else if !isImageSelectorSyntaxValid {
                             ValidationText(message: "This CSS selector appears invalid.")
                         }
                     }
@@ -229,9 +294,10 @@ struct ComicEditorView: View {
                         Text("Title selector")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        TextField("Title selector", text: $vm.comicSelectorTitle)
+                        TextField("Title selector", text: $comicSelectorTitle)
                             .textFieldStyle(.roundedBorder)
-                        if vm.isTitleSelectorNonEmptyAndInvalid {
+                            .onChange(of: comicSelectorTitle) { _, _ in scheduleTitleValidation() }
+                        if isTitleSelectorNonEmptyAndInvalid {
                             ValidationText(message: "This CSS selector appears invalid.")
                         }
                     }
@@ -240,11 +306,12 @@ struct ComicEditorView: View {
                         Text("Next page selector *")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        TextField("Next page selector", text: $vm.comicSelectorNextPage)
+                        TextField("Next page selector", text: $comicSelectorNextPage)
                             .textFieldStyle(.roundedBorder)
-                        if vm.isNextSelectorEmpty {
+                            .onChange(of: comicSelectorNextPage) { _, _ in scheduleNextValidation() }
+                        if isNextSelectorEmpty {
                             ValidationText(message: "Next page selector is required.")
-                        } else if !vm.isNextSelectorSyntaxValid {
+                        } else if !isNextSelectorSyntaxValid {
                             ValidationText(message: "This CSS selector appears invalid.")
                         }
                     }
@@ -277,5 +344,144 @@ struct ComicEditorView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 1)
         )
+    }
+
+    // MARK: - Validation & Helpers
+
+    private var isComicNameEmpty: Bool { comicName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isMainURLPresentAndInvalid: Bool { !comicURL.isEmpty && !isValidURL(comicURL) }
+    private var isFirstPageURLEmpty: Bool { comicCurrentURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isFirstPageURLInvalid: Bool { !isFirstPageURLEmpty && !isValidURL(comicCurrentURL) }
+    private var isImageSelectorEmpty: Bool { comicSelectorImage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isTitleSelectorNonEmptyAndInvalid: Bool {
+        let trimmed = comicSelectorTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && !isTitleSelectorSyntaxValid
+    }
+    private var isNextSelectorEmpty: Bool { comicSelectorNextPage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    private var isValid: Bool {
+        !comicName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        isValidURL(comicCurrentURL) &&
+        !comicSelectorImage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !comicSelectorNextPage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        isImageSelectorSyntaxValid &&
+        isNextSelectorSyntaxValid
+    }
+
+    private var hasUnsavedChanges: Bool {
+        func t(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return t(comicName) != t(initialName) ||
+               t(comicAuthor) != t(initialAuthor) ||
+               t(comicDescription) != t(initialDescription) ||
+               t(comicURL) != t(initialURL) ||
+               t(comicCurrentURL) != t(initialFirstPageURL) ||
+               t(comicSelectorImage) != t(initialSelectorImage) ||
+               t(comicSelectorTitle) != t(initialSelectorTitle) ||
+               t(comicSelectorNextPage) != t(initialSelectorNext)
+    }
+
+    private func initializeValidationStates() {
+        let img = comicSelectorImage.trimmingCharacters(in: .whitespacesAndNewlines)
+        isImageSelectorSyntaxValid = !img.isEmpty && isValidCSSSelector(img)
+
+        let ttl = comicSelectorTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        isTitleSelectorSyntaxValid = ttl.isEmpty || isValidCSSSelector(ttl)
+
+        let nxt = comicSelectorNextPage.trimmingCharacters(in: .whitespacesAndNewlines)
+        isNextSelectorSyntaxValid = !nxt.isEmpty && isValidCSSSelector(nxt)
+    }
+
+    private func buildInput() -> ComicInput? {
+        guard isValid else { return nil }
+
+        let name = comicName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let normalizedAuthors: String = comicAuthor
+            .replacingOccurrences(of: "，", with: ",")
+            .replacingOccurrences(of: ";", with: ",")
+            .split(separator: ",")
+            .map { part in
+                let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+                let collapsed = trimmed.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                return collapsed
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+
+        let description = comicDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let url = normalizeURLString(comicURL)
+        let firstPageURL = normalizeURLString(comicCurrentURL)
+
+        let selectorImage = comicSelectorImage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectorTitle = comicSelectorTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectorNext = comicSelectorNextPage.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return ComicInput(
+            name: name,
+            author: normalizedAuthors,
+            description: description,
+            url: url,
+            firstPageURL: firstPageURL,
+            selectorImage: selectorImage,
+            selectorTitle: selectorTitle,
+            selectorNext: selectorNext
+        )
+    }
+
+    private func isValidURL(_ string: String) -> Bool {
+        guard let url = URL(string: string), let scheme = url.scheme else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
+    private func isValidCSSSelector(_ selector: String) -> Bool {
+        let trimmed = selector.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        do {
+            let html = "<html><body><div id='probe' class='x y'></div></body></html>"
+            let doc = try SwiftSoup.parse(html)
+            _ = try doc.select(trimmed)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func normalizeURLString(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var comps = URLComponents(string: t) else { return t }
+        if let scheme = comps.scheme { comps.scheme = scheme.lowercased() }
+        if let host = comps.host { comps.host = host.lowercased() }
+        return comps.string ?? t
+    }
+
+    private func scheduleImageValidation() {
+        imageValidationTask?.cancel()
+        imageValidationTask = Task { [comicSelectorImage] in
+            try? await Task.sleep(for: .milliseconds(300))
+            if Task.isCancelled { return }
+            let trimmed = comicSelectorImage.trimmingCharacters(in: .whitespacesAndNewlines)
+            await MainActor.run { isImageSelectorSyntaxValid = !trimmed.isEmpty && isValidCSSSelector(trimmed) }
+        }
+    }
+
+    private func scheduleTitleValidation() {
+        titleValidationTask?.cancel()
+        titleValidationTask = Task { [comicSelectorTitle] in
+            try? await Task.sleep(for: .milliseconds(300))
+            if Task.isCancelled { return }
+            let trimmed = comicSelectorTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            await MainActor.run { isTitleSelectorSyntaxValid = trimmed.isEmpty || isValidCSSSelector(trimmed) }
+        }
+    }
+
+    private func scheduleNextValidation() {
+        nextValidationTask?.cancel()
+        nextValidationTask = Task { [comicSelectorNextPage] in
+            try? await Task.sleep(for: .milliseconds(300))
+            if Task.isCancelled { return }
+            let trimmed = comicSelectorNextPage.trimmingCharacters(in: .whitespacesAndNewlines)
+            await MainActor.run { isNextSelectorSyntaxValid = !trimmed.isEmpty && isValidCSSSelector(trimmed) }
+        }
     }
 }
