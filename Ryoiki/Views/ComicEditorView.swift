@@ -12,95 +12,6 @@ private struct ValidationText: View {
     }
 }
 
-struct ComicMetadataSection: View {
-    @Bindable var vm: ComicEditorViewModel
-
-    public var body: some View {
-        Section {
-            TextField("Name *", text: $vm.comicName)
-            if vm.isComicNameEmpty {
-                ValidationText(message: "Name is required.")
-            }
-
-            TextField("Author(s)", text: $vm.comicAuthor)
-                .help("Separate multiple authors with a comma")
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Description")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $vm.comicDescription)
-                    .frame(minHeight: 140)
-                    .padding(6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(.quaternary.opacity(0.3))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(.quaternary, lineWidth: 1)
-                    )
-            }
-            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-        } header: {
-            Text("Details")
-        } footer: {
-            Text("Provide a short description to help identify the comic later.")
-        }
-
-        Section {
-            VStack(alignment: .leading, spacing: 4) {
-                TextField("Main URL", text: $vm.comicURL)
-                if vm.isMainURLPresentAndInvalid {
-                    ValidationText(message: "Enter a valid URL (http/https).")
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                TextField("First Page URL *", text: $vm.comicCurrentURL)
-                if vm.isFirstPageURLEmpty {
-                    ValidationText(message: "First Page URL is required.")
-                } else if vm.isFirstPageURLInvalid {
-                    ValidationText(message: "Enter a valid URL (http/https).")
-                }
-            }
-        } header: {
-            Text("URLs")
-        } footer: {
-            Text("The main URL is usually the comic’s homepage. The first page URL points to the very first strip.")
-        }
-    }
-}
-
-struct CSSSelectorSection: View {
-    @Bindable var vm: ComicEditorViewModel
-
-    var body: some View {
-        Section {
-            TextField("Image selector *", text: $vm.comicSelectorImage)
-            if vm.isImageSelectorEmpty {
-                ValidationText(message: "Image selector is required.")
-            } else if !vm.isImageSelectorSyntaxValid {
-                ValidationText(message: "This CSS selector appears invalid.")
-            }
-            TextField("Title selector", text: $vm.comicSelectorTitle)
-            if vm.isTitleSelectorNonEmptyAndInvalid {
-                ValidationText(message: "This CSS selector appears invalid.")
-            }
-            TextField("Next page selector *", text: $vm.comicSelectorNextPage)
-            if vm.isNextSelectorEmpty {
-                ValidationText(message: "Next page selector is required.")
-            } else if !vm.isNextSelectorSyntaxValid {
-                ValidationText(message: "This CSS selector appears invalid.")
-            }
-        } header: {
-            Text("CSS Selectors")
-        } footer: {
-            Text("Use CSS selectors that are stable across pages. For example, prefer a class or id that’s consistently present.")
-        }
-    }
-}
-
 struct ComicEditorView: View {
     // MARK: External API
     /// Called when the user confirms the form.
@@ -110,6 +21,8 @@ struct ComicEditorView: View {
     // MARK: Internal State
     @State private var vm: ComicEditorViewModel
     @Environment(\.dismiss) var dismiss
+
+    @State private var showDiscardAlert: Bool = false
 
     init(comicToEdit: Comic? = nil, onSubmit: ((ComicInput) -> Void)? = nil) {
         self.comicToEdit = comicToEdit
@@ -173,7 +86,6 @@ struct ComicEditorView: View {
         )
     }
 
-    @State private var showDiscardAlert: Bool = false
 
     // MARK: Toolbar Buttons
 
@@ -264,10 +176,10 @@ struct ComicEditorView: View {
             cardSection(title: "URLs") {
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Main URL")
+                        Text("Homepage")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        TextField("Main URL", text: $vm.comicURL)
+                        TextField("Homepage", text: $vm.comicURL)
                             .textFieldStyle(.roundedBorder)
                         if vm.isMainURLPresentAndInvalid {
                             ValidationText(message: "Enter a valid URL (http/https).")
@@ -287,7 +199,7 @@ struct ComicEditorView: View {
                         }
                     }
                 }
-                Text("The main URL is usually the comic’s homepage. The first page URL points to the very first strip.")
+                Text("The Homepage is usually the comic’s main website URL. The first page URL points to the very first strip.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
