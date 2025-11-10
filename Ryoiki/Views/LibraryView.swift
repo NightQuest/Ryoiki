@@ -6,6 +6,7 @@ import Foundation
 struct LibraryView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.comicManager) private var comicManager
     @Query(sort: \Comic.name) private var comics: [Comic]
     @Binding var isEditingComic: Bool
     @Binding var isDisplayingComicPages: Bool
@@ -13,16 +14,20 @@ struct LibraryView: View {
     @Binding var externalSelectedComic: Comic?
     @Binding var isDisplayingComicDetails: Bool
     @AppStorage(.settingsLibraryItemsPerRow) private var itemsPerRowPreference: Int = 6
-    @State private var viewModel = LibraryViewModel()
     @State private var alertMessage: String?
 
     @State private var exportDocument: ComicProfileDocument?
     @State private var isExporting: Bool = false
     @State private var isImporting: Bool = false
 
-    @ViewBuilder
-    private var LibraryContent: some View {
-        if comics.isEmpty {
+    @State private var isAddingComic: Bool = false
+    @State private var fetchingComicIDs: Set<UUID> = []
+    @State private var updatingComicIDs: Set<UUID> = []
+    @State private var fetchTasks: [UUID: Task<Void, Never>] = [:]
+    @State private var updateTasks: [UUID: Task<Void, Never>] = [:]
+
+    private struct LibraryEmptyStateView: View {
+        var body: some View {
             VStack(spacing: 24) {
                 ContentUnavailableView("No web comics found",
                                        systemImage: "square.grid.2x2",
@@ -30,24 +35,31 @@ struct LibraryView: View {
                 .padding()
             }
             .padding(.horizontal)
+        }
+    }
+
+    @ViewBuilder
+    private var LibraryContent: some View {
+        if comics.isEmpty {
+            LibraryEmptyStateView()
         } else {
             ComicGrid(
                 comics: comics,
                 selectedComic: $externalSelectedComic,
                 itemsPerRowPreference: itemsPerRowPreference,
-                fetchingComicIDs: viewModel.fetchingComicIDs,
-                updatingComicIDs: viewModel.updatingComicIDs,
+                fetchingComicIDs: fetchingComicIDs,
+                updatingComicIDs: updatingComicIDs,
                 onEdit: { comic in
                     externalSelectedComic = comic
                     isEditingComic = true
                 },
                 onFetch: { comic in
                     externalSelectedComic = comic
-                    viewModel.fetch(comic: comic, context: context)
+                    fetch(comic: comic, context: context)
                 },
                 onUpdate: { comic in
                     externalSelectedComic = comic
-                    viewModel.update(comic: comic, context: context)
+                    update(comic: comic, context: context)
                 },
                 onOpenPages: { comic in
                     externalSelectedComic = comic
@@ -70,13 +82,13 @@ struct LibraryView: View {
         ToolbarItemGroup {
             let isSelectedComicBusy: Bool = {
                 if let c = externalSelectedComic {
-                    return viewModel.isFetching(comic: c) || viewModel.isUpdating(comic: c)
+                    return isFetching(comic: c) || isUpdating(comic: c)
                 }
                 return false
             }()
 
             Button {
-                viewModel.isAddingComic = true
+                isAddingComic = true
             } label: {
                 Label("Add Web Comic", systemImage: "plus.app")
             }
@@ -138,7 +150,6 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        @Bindable var viewModel = viewModel
         NavigationStack {
             LibraryContent
             .toolbar { toolbarContent }
@@ -161,27 +172,27 @@ struct LibraryView: View {
                     let urls = try result.get()
                     guard let url = urls.first else { return }
 
-                    // Let the document handle security-scoped access and validation
                     let doc = try ComicProfileDocument.load(from: url)
 
-                    _ = try viewModel.importProfileData(doc.data, context: context)
+                    _ = try comicManager.importProfileData(doc.data, context: context)
                     alertMessage = "Imported profile from \(url.lastPathComponent)."
                 } catch {
                     alertMessage = "Failed to import: \(error.localizedDescription)"
                 }
             }
-            .navigationDestination(isPresented: $viewModel.isAddingComic) {
+            .navigationDestination(isPresented: $isAddingComic) {
                 ComicEditorView { input in
-                    viewModel.addComic(input: input, context: context)
+                    addComic(input: input, context: context)
                 }
             }
             .navigationDestination(isPresented: $isEditingComic) {
                 if let comic = externalSelectedComic {
                     ComicEditorView(comicToEdit: comic) { input in
-                        viewModel.editComic(comic: comic, input: input, context: context)
+                        editComic(comic: comic, input: input, context: context)
                     }
                 } else {
-                    // Fallback if selection was lost; present empty editor (should not happen normally)
+                    // Fallback if selection was lost; present empty editor
+                    // (should not happen normally)
                     ComicEditorView { _ in }
                 }
             }
@@ -205,13 +216,13 @@ struct LibraryView: View {
                         comic: comic,
                         onRead: { isDisplayingReader = true },
                         onEdit: { isEditingComic = true },
-                        onFetch: { viewModel.fetch(comic: comic, context: context) },
-                        onUpdate: { viewModel.update(comic: comic, context: context) },
+                        onFetch: { fetch(comic: comic, context: context) },
+                        onUpdate: { update(comic: comic, context: context) },
                         onOpenImages: { isDisplayingComicPages = true },
-                        onCancelFetch: { viewModel.cancelFetch(for: comic) },
-                        onCancelUpdate: { viewModel.cancelUpdate(for: comic) },
-                        isFetching: viewModel.isFetching(comic: comic),
-                        isUpdating: viewModel.isUpdating(comic: comic)
+                        onCancelFetch: { cancelFetch(for: comic) },
+                        onCancelUpdate: { cancelUpdate(for: comic) },
+                        isFetching: isFetching(comic: comic),
+                        isUpdating: isUpdating(comic: comic)
                     )
                 } else {
                     ContentUnavailableView("No comic selected", systemImage: "exclamationmark.triangle")
@@ -229,7 +240,7 @@ struct LibraryView: View {
     private func prepareExportProfile() {
         guard let comic = externalSelectedComic else { return }
         do {
-            let data = try viewModel.exportProfileData(for: comic)
+            let data = try comicManager.exportProfileData(for: comic)
             exportDocument = ComicProfileDocument(data: data)
             isExporting = true
         } catch {
@@ -240,6 +251,84 @@ struct LibraryView: View {
     private func exportDefaultFilename() -> String {
         let base = externalSelectedComic?.name ?? "ComicProfile"
         return base.sanitizedForFileName() + ".json"
+    }
+
+    private func isFetching(comic: Comic) -> Bool { fetchingComicIDs.contains(comic.id) }
+    private func isUpdating(comic: Comic) -> Bool { updatingComicIDs.contains(comic.id) }
+
+    private func fetch(comic: Comic, context: ModelContext) {
+        guard fetchTasks[comic.id] == nil else { return }
+        fetchingComicIDs.insert(comic.id)
+        let comicID = comic.id
+        let container = context.container
+
+        let task = Task.detached(priority: .userInitiated) {
+            do {
+                try Task.checkCancellation()
+                _ = await comicManager.fetchPagesForComic(comicID: comicID, container: container)
+            } catch is CancellationError {
+            } catch let urlError as URLError where urlError.code == .cancelled {
+            } catch {
+                print("Fetch failed: \(error)")
+            }
+            await MainActor.run {
+                fetchingComicIDs.remove(comicID)
+                fetchTasks[comicID] = nil
+            }
+        }
+        fetchTasks[comic.id] = task
+    }
+
+    private func cancelFetch(for comic: Comic) { fetchTasks[comic.id]?.cancel() }
+
+    private func update(comic: Comic, context: ModelContext) {
+        guard updateTasks[comic.id] == nil else { return }
+        updatingComicIDs.insert(comic.id)
+        let comicID = comic.id
+        let container = context.container
+
+        let task = Task.detached(priority: .userInitiated) {
+            do {
+                try Task.checkCancellation()
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                _ = await comicManager.downloadImagesForComic(comicID: comicID, container: container, documentsURL: docs)
+            } catch is CancellationError {
+            } catch let urlError as URLError where urlError.code == .cancelled {
+            } catch {
+                print("Update failed: \(error)")
+            }
+            await MainActor.run {
+                updatingComicIDs.remove(comicID)
+                updateTasks[comicID] = nil
+            }
+        }
+        updateTasks[comic.id] = task
+    }
+
+    private func cancelUpdate(for comic: Comic) { updateTasks[comic.id]?.cancel() }
+
+    private func addComic(input: ComicInput, context: ModelContext) {
+        _ = comicManager.addComic(input: input, context: context)
+    }
+
+    private func editComic(comic: Comic, input: ComicInput, context: ModelContext) {
+        let oldName = comic.name
+        comic.name = input.name
+        comic.author = input.author
+        comic.descriptionText = input.description
+        comic.url = input.url
+        comic.firstPageURL = input.firstPageURL
+        comic.selectorImage = input.selectorImage
+        comic.selectorTitle = input.selectorTitle
+        comic.selectorNext = input.selectorNext
+        do {
+            try context.save()
+            if oldName != input.name {
+                comicManager.editComic(comicID: comic.id, input: input, container: context.container)
+            }
+        } catch {
+            print("Failed to save edits:", error.localizedDescription)
+        }
     }
 }
 
