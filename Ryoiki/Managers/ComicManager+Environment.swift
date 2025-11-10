@@ -1,7 +1,7 @@
 import SwiftUI
 
 private struct ComicManagerKey: EnvironmentKey {
-    static let defaultValue: ComicManager = ComicManager()
+    static let defaultValue: ComicManager = ComicManager(httpClient: HTTPClient())
 }
 
 extension EnvironmentValues {
